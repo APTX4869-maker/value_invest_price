@@ -8,6 +8,11 @@ import { TrendChart } from "../components/TrendChart";
 import { metricGuides } from "../data/metricGuides";
 import { formatMoney, formatPercent } from "../utils/formatters";
 
+function confidenceValue(confidence) {
+  if (!confidence) return "-";
+  return typeof confidence === "string" ? confidence : `${confidence.score}/100 · ${confidence.level}`;
+}
+
 export function CompanyAnalysis({ companyData, refreshCompany, savePriceOverride }) {
   if (!companyData?.company) return <EmptyState title="还没有公司数据" text="请先在观察池添加 ticker。" />;
   const { company, facts, valuation } = companyData;
@@ -38,7 +43,7 @@ export function CompanyAnalysis({ companyData, refreshCompany, savePriceOverride
           <Stat label="当前判断" value={valuation.judgement} tone="decision" />
           <Stat label="合理价值中枢" value={formatMoney(valuation.fair_value_center, false)} />
           <Stat label="安全边际买入" value={`${formatMoney(valuation.margin_of_safety_buy_price.low, false)} - ${formatMoney(valuation.margin_of_safety_buy_price.high, false)}`} />
-          <Stat label="估值可信度" value={valuation.confidence} />
+          <Stat label="估值可信度" value={confidenceValue(valuation.confidence)} />
         </div>
       ) : (
         <div className="empty-state compact">

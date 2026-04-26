@@ -1,140 +1,231 @@
-import { GuidanceCard } from "../components/GuidanceCard";
-import { GuidedMetric } from "../components/GuidedMetric";
 import { Badge } from "../components/Badge";
 import { Stat } from "../components/Stat";
-import { metricGuides } from "../data/metricGuides";
 import { formatMoney, formatPercent } from "../utils/formatters";
 
+function confidenceText(confidence) {
+  if (!confidence) return "数据不足";
+  if (typeof confidence === "string") return confidence;
+  if (confidence.score >= 75) return "较可靠";
+  if (confidence.score >= 55) return "中等";
+  return "偏低";
+}
+
+function confidenceDetail(confidence) {
+  if (!confidence || typeof confidence === "string") return "";
+  return `${confidence.score}/100 · ${confidence.level}`;
+}
+
+function ratingLabel(rating) {
+  const labels = {
+    buy: "有吸引力",
+    accumulate: "可继续观察/分批",
+    hold: "大致合理",
+    trim: "偏贵",
+    sell_or_avoid: "偏贵，谨慎",
+    too_uncertain: "不确定性太高",
+  };
+  return labels[rating] || rating || "待判断";
+}
+
+function sourceLabel(source) {
+  const labels = {
+    manual_consensus: "你手动填的",
+    db_consensus: "本地保存的共识",
+    system_estimate: "系统估算，非市场共识",
+    reported: "真实财报",
+  };
+  return labels[source] || source || "未注明";
+}
+
+function pricePosition(target, current) {
+  if (!target?.base || !current) return "数据不足";
+  if (current <= target.bear) return "低于保守价，价格比较有吸引力";
+  if (current <= target.base * 0.95) return "低于基准价，略偏便宜";
+  if (current <= target.base * 1.10) return "接近基准价，大致合理";
+  if (current <= target.bull) return "靠近乐观价，需要未来兑现";
+  return "超过乐观价，要求比较高";
+}
+
+function TargetRange({ target, current }) {
+  const low = Math.min(target.range_low, current);
+  const high = Math.max(target.range_high, current);
+  const pos = (value) => `${Math.max(0, Math.min(100, ((value - low) / Math.max(high - low, 1)) * 100))}%`;
+  return (
+    <div className="target-range simple-range">
+      <div className="range-track">
+        <span className="range-fill" style={{ left: pos(target.bear), width: `${Math.max(2, ((target.bull - target.bear) / Math.max(high - low, 1)) * 100)}%` }} />
+        <i className="range-marker bear" style={{ left: pos(target.bear) }} />
+        <i className="range-marker base" style={{ left: pos(target.base) }} />
+        <i className="range-marker bull" style={{ left: pos(target.bull) }} />
+        <i className="range-marker current" style={{ left: pos(current) }} />
+      </div>
+      <div className="range-labels">
+        <span>保守 {formatMoney(target.bear, false)}</span>
+        <strong>合理中枢 {formatMoney(target.base, false)}</strong>
+        <span>乐观 {formatMoney(target.bull, false)}</span>
+        <span>当前 {formatMoney(current, false)}</span>
+      </div>
+    </div>
+  );
+}
+
+function plainModelText(item) {
+  const key = item.model || item.key;
+  const base = formatMoney(item.base, false);
+  const inputs = item.key_inputs || {};
+  if (key === "forward_pe") {
+    return `盈利法：如果明年每股收益约 ${formatMoney(inputs.forward_eps, false)}，再乘上合理 PE，得到的中间价约 ${base}。`;
+  }
+  if (key === "three_stage_dcf") {
+    return `现金流法：把未来能赚到的现金折算回今天，得到的中间价约 ${base}。`;
+  }
+  if (key === "ev_sales" || key === "rule_of_40_ev_sales") {
+    return `收入法：用类似成长公司的收入倍数做参照，得到的中间价约 ${base}。`;
+  }
+  if (key === "ev_ebitda") {
+    return `经营利润法：用企业价值和 EBITDA 做参照，得到的中间价约 ${base}。`;
+  }
+  if (key === "fcf_yield") {
+    return `现金收益率法：把公司当成一项现金流资产，得到的中间价约 ${base}。`;
+  }
+  if (key === "reverse_check") {
+    return `反向检查：看当前价格要求未来做到什么，用来防止过度乐观。`;
+  }
+  return `${item.label}：中间价约 ${base}。`;
+}
+
 export function ValuationResult({ result }) {
-  const summary = result.v3_summary || {};
-  const marketRange = summary.market_reasonable_range || { low: result.fair_value_range.low, base: result.fair_value_center, high: result.fair_value_range.high };
-  const conservativeRange = summary.conservative_range;
-  const optimisticRange = summary.optimistic_growth_range;
-  const consistency = summary.model_consistency;
-  const modelRows = result.valuation_models?.filter((item) => item.weight > 0) || [];
+  const target = result.target_price || {
+    bear: result.fair_value_range?.low,
+    base: result.fair_value_center,
+    bull: result.fair_value_range?.high,
+    range_low: result.fair_value_range?.low,
+    range_high: result.fair_value_range?.high,
+    upside_base: result.current_price && result.fair_value_center ? (result.fair_value_center - result.current_price) / result.current_price : 0,
+  };
+  const modelRows = result.model_outputs || result.valuation_models || [];
+  const reverse = result.reverse_expectations || result.reverse_dcf || {};
+  const reverseMultiples = reverse.multiples || {};
+  const dataQuality = result.data_quality || {};
+  const forward = result.forward_estimates || {};
+  const rating = result.rating || result.judgement;
+  const topModels = modelRows.filter((item) => item.weight > 0).slice(0, 4);
+  const warningCount = (dataQuality.warnings || []).length;
 
   return (
     <>
-      <div className="valuation-hero">
-        <div>
-          <Badge tone={["偏贵", "明显高估", "高风险高估", "偏贵但可解释"].includes(result.judgement) ? "warn" : "good"}>{result.judgement}</Badge>
-          <h2>{result.plain_language.headline}</h2>
-          <p>{result.plain_language.expectation}</p>
+      <div className="simple-valuation-hero">
+        <div className="simple-hero-copy">
+          <Badge tone={["buy", "accumulate", "有吸引力", "偏便宜"].includes(rating) ? "good" : ["trim", "sell_or_avoid", "偏贵", "高风险高估"].includes(rating) ? "warn" : "neutral"}>
+            {ratingLabel(rating)}
+          </Badge>
+          <h2>{result.ticker} 的合理价格区间</h2>
+          <p className="big-sentence">
+            系统认为比较值得看的区间是 <strong>{formatMoney(target.bear, false)} - {formatMoney(target.bull, false)}</strong>，
+            中间判断约 <strong>{formatMoney(target.base, false)}</strong>。
+          </p>
+          <p>{pricePosition(target, result.current_price)}。这不是买卖建议，只是把关键假设算成一个价格区间。</p>
         </div>
-        <div className="range-card">
-          <span>综合合理区间</span>
-          <strong>{formatMoney(marketRange.low, false)} - {formatMoney(marketRange.high, false)}</strong>
-          <small>中枢 {formatMoney(marketRange.base || result.fair_value_center, false)} · {summary.style_label || result.valuation_lens}</small>
-        </div>
-      </div>
-      <div className="decision-strip">
-        <Stat label="当前价" value={formatMoney(result.current_price, false)} />
-        <Stat label="安全边际买入" value={`${formatMoney(result.margin_of_safety_buy_price.low, false)} - ${formatMoney(result.margin_of_safety_buy_price.high, false)}`} />
-        <Stat label="高风险高估区" value={`>${formatMoney(result.overvalued_price, false)}`} />
-        <Stat label="可信度" value={result.confidence} />
-      </div>
-      <div className="panel decision-panel">
-        <div>
-          <h3>普通投资者结论</h3>
-          <p className="plain-callout">{result.plain_language.v3_conclusion || result.plain_language.conservative_action}</p>
-          <p>{result.plain_language.model_consistency || "系统会自动综合不同估值口径，不需要你自己判断哪个模型更专业。"}</p>
-        </div>
-        <div className="decision-note">
-          <span>最关键的不确定性</span>
-          <strong>{result.plain_language.most_sensitive}</strong>
+        <div className="simple-price-card">
+          <span>当前价格</span>
+          <strong>{formatMoney(result.current_price, false)}</strong>
+          <small>相对中间价 {formatPercent(target.upside_base)}</small>
         </div>
       </div>
-      {conservativeRange && optimisticRange ? (
-        <div className="value-band-grid">
-          <div className="value-band">
-            <span>保守价值区间</span>
-            <strong>{formatMoney(conservativeRange.low, false)} - {formatMoney(conservativeRange.high, false)}</strong>
-            <small>只相信现金流和保守成长</small>
+
+      <div className="panel simple-panel">
+        <div className="simple-section-heading">
+          <div>
+            <span className="eyebrow">先看结论</span>
+            <h3>现在到底贵不贵？</h3>
           </div>
-          <div className="value-band primary">
-            <span>市场合理区间</span>
-            <strong>{formatMoney(marketRange.low, false)} - {formatMoney(marketRange.high, false)}</strong>
-            <small>综合 forward PE、PEG、EV multiples 和 DCF</small>
-          </div>
-          <div className="value-band">
-            <span>乐观成长区间</span>
-            <strong>{formatMoney(optimisticRange.low, false)} - {formatMoney(optimisticRange.high, false)}</strong>
-            <small>需要成长故事继续兑现</small>
-          </div>
+          <Badge tone={target.upside_base > 0.1 ? "good" : target.upside_base < -0.1 ? "warn" : "neutral"}>
+            {pricePosition(target, result.current_price)}
+          </Badge>
         </div>
-      ) : null}
-      <div className="two-column">
-        <div className="panel">
-          <h3>三种现金流口径</h3>
-          <GuidedMetric label="实际 FCF" value={formatMoney(result.cash_flows.actual_fcf)} text="最保守，当年真正剩下的钱。" />
-          <GuidedMetric label="Normalized FCF" value={formatMoney(result.cash_flows.normalized_fcf)} text="平滑高 CAPEX 年份后的现金流。" />
-          <GuidedMetric label="Owner Earnings" value={formatMoney(result.cash_flows.owner_earnings)} text="更接近股东可拥有的现金流。" />
-        </div>
-        <div className="panel accent-panel">
-          <h3>反向 DCF</h3>
-          <p className="big-sentence">{result.reverse_dcf.plain_language}</p>
-          <p>{result.reverse_dcf.is_capped ? "这说明当前价格已经超过本模型能稳定反推的增长范围，需要用未来 EPS 或收入增速另行校验。" : result.reverse_dcf.requires_bull_case ? "这说明当前价格更依赖牛市情景兑现。" : "这个隐含预期没有明显脱离基准情景。"}</p>
+        <TargetRange target={target} current={result.current_price} />
+        <div className="simple-stat-row">
+          <Stat label="保守情况" value={formatMoney(target.bear, false)} hint="未来不太顺时的参考价" />
+          <Stat label="正常情况" value={formatMoney(target.base, false)} hint="系统目前最看重的中间价" />
+          <Stat label="乐观情况" value={formatMoney(target.bull, false)} hint="增长和利润率都兑现时" />
+          <Stat label="可信度" value={confidenceText(result.confidence)} hint={confidenceDetail(result.confidence)} />
         </div>
       </div>
-      <div className="panel compact-panel">
-        <h3>估值口径校验</h3>
-        <p className="plain-callout">{result.plain_language.sanity_check}</p>
-        <div className="formula-grid">
-          <Stat label="P/FCF" value={`${(result.sanity_metrics?.price_to_actual_fcf || 0).toFixed(1)}x`} />
-          <Stat label="P/Owner Earnings" value={`${(result.sanity_metrics?.price_to_owner_earnings || 0).toFixed(1)}x`} />
-          <Stat label="P/S" value={`${(result.sanity_metrics?.price_to_sales || 0).toFixed(1)}x`} />
-          <Stat label="SBC / 收入" value={formatPercent(result.sanity_metrics?.sbc_to_revenue)} />
-          {summary.forward_inputs ? <Stat label="估算 Forward EPS" value={formatMoney(summary.forward_inputs.forward_eps_estimate, false)} hint={`${summary.forward_inputs.projection_years || 1} 年前瞻窗口`} /> : null}
-          {consistency ? <Stat label="模型一致性" value={consistency.level} hint={consistency.price_position} /> : null}
+
+      <div className="two-column simple-two-column">
+        <div className="panel simple-panel">
+          <div className="simple-section-heading">
+            <div>
+              <span className="eyebrow">反过来看</span>
+              <h3>当前价格在赌什么？</h3>
+            </div>
+          </div>
+          <p className="plain-callout">{reverse.plain_language || "当前数据不足，暂时无法反推出市场隐含预期。"}</p>
+          <div className="simple-stat-row compact">
+            <Stat label="需要的收入增速" value={formatPercent(reverse.implied_revenue_cagr_5y)} hint="未来 5 年年化" />
+            <Stat label="需要的现金流率" value={formatPercent(reverse.implied_terminal_fcf_margin)} hint="终局 FCF margin" />
+            <Stat label="当前 PE 口径" value={`${(reverseMultiples.implied_forward_pe || 0).toFixed(1)}x`} hint="越高越依赖增长" />
+          </div>
+          <p className="muted">{reverseMultiples.plain_language}</p>
+        </div>
+
+        <div className="panel simple-panel">
+          <div className="simple-section-heading">
+            <div>
+              <span className="eyebrow">别过度相信数字</span>
+              <h3>这次估值有多可靠？</h3>
+            </div>
+          </div>
+          <p className="plain-callout">
+            可信度：{confidenceText(result.confidence)}。{warningCount ? `系统发现 ${warningCount} 个需要注意的地方。` : "关键数据暂时没有明显异常。"}
+          </p>
+          {(dataQuality.warnings || []).slice(0, 3).map((warning) => <p className="muted" key={warning}>{warning}</p>)}
         </div>
       </div>
-      {modelRows.length ? (
-        <details className="formula-box">
-          <summary>查看各估值模型的价格锚点</summary>
-          <div className="model-grid">
-            {modelRows.map((item) => (
-              <div className="model-card" key={item.key}>
-                <div>
-                  <span>{item.label}</span>
-                  <small>权重 {formatPercent(item.weight)}</small>
-                </div>
-                <strong>{formatMoney(item.low, false)} - {formatMoney(item.high, false)}</strong>
-                <p>{item.explanation}</p>
-              </div>
-            ))}
+
+      <div className="panel simple-panel">
+        <div className="simple-section-heading">
+          <div>
+            <span className="eyebrow">白话版</span>
+            <h3>系统是怎么算出这个区间的？</h3>
           </div>
-        </details>
-      ) : null}
-      <div className="scenario-grid">
-        {Object.entries(result.scenarios).map(([key, item]) => (
-          <div className="scenario" key={key}>
-            <span>{item.label}</span>
-            <strong>{formatMoney(item.per_share, false)}</strong>
-            <small>概率 {formatPercent(item.probability)} / 增长 {formatPercent(item.growth)}</small>
-          </div>
-        ))}
+        </div>
+        <div className="plain-model-list">
+          {topModels.map((item) => (
+            <div className="plain-model-card" key={item.model || item.key}>
+              <strong>{item.label}</strong>
+              <p>{plainModelText(item)}</p>
+              <small>这个方法在本次估值里占 {formatPercent(item.weight)}。</small>
+            </div>
+          ))}
+        </div>
       </div>
+
       <details className="formula-box">
-        <summary>展开公式和专业指标</summary>
-        <div className="guide-grid">
-          <GuidanceCard guide={metricGuides.reverse} />
-          <GuidanceCard guide={metricGuides.terminal} />
+        <summary>高级详情：模型、输入来源、CAPEX 拆分和 DCF 敏感性</summary>
+        <div className="model-table">
+          <div className="model-table-head">
+            <span>模型</span>
+            <span>保守 / 正常 / 乐观</span>
+            <span>权重</span>
+            <span>数据来源</span>
+          </div>
+          {modelRows.filter((item) => item.weight > 0).map((item) => (
+            <div className="model-table-row" key={item.model || item.key}>
+              <strong>{item.label}</strong>
+              <span>{formatMoney(item.bear ?? item.low, false)} / {formatMoney(item.base, false)} / {formatMoney(item.bull ?? item.high, false)}</span>
+              <span>{formatPercent(item.weight)}</span>
+              <small>{Object.entries(item.data_sources || {}).map(([key, value]) => `${key}: ${sourceLabel(value)}`).join(" · ")}</small>
+              <p>{item.weight_reason || item.explanation}</p>
+            </div>
+          ))}
         </div>
         <div className="formula-grid">
-          <Stat label="FCF Yield" value={formatPercent(result.yields.fcf_yield)} />
-          <Stat label="OCF Yield" value={formatPercent(result.yields.ocf_yield)} />
-          <Stat label="终值依赖度" value={formatPercent(result.terminal_dependency)} />
-          <Stat label="现金流锚定价" value={formatMoney(result.yields.cash_flow_anchor_price, false)} />
+          {Object.entries(forward).map(([key, item]) => (
+            <Stat key={key} label={`${key} · ${sourceLabel(item.source)}`} value={key.includes("growth") ? formatPercent(item.value) : formatMoney(item.value)} />
+          ))}
         </div>
-        <div className="guide-grid">
-          <GuidanceCard guide={{
-            title: "模型局限",
-            oneLine: result.valuation_lens || "现金流 DCF 视角",
-            standard: result.plain_language.model_limits?.join(" "),
-            impact: "如果 forward PE 与 DCF 结论差异很大，应该把它当成需要进一步核验的分歧，而不是直接忽略其中一个。"
-          }} />
-        </div>
-        <pre>{JSON.stringify(result.formula_notes, null, 2)}</pre>
+        <pre>{JSON.stringify({ capex_split: result.capex_split, dcf_sensitivity: result.dcf?.sensitivity, key_risks: result.key_risks }, null, 2)}</pre>
       </details>
     </>
   );

@@ -96,6 +96,73 @@ def init_db() -> None:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS consensus_estimates (
+                ticker TEXT PRIMARY KEY,
+                fiscal_year INTEGER,
+                revenue_next_year REAL,
+                revenue_2y REAL,
+                eps_next_year REAL,
+                eps_2y REAL,
+                ebitda_next_year REAL,
+                operating_income_next_year REAL,
+                fcf_next_year REAL,
+                long_term_eps_growth REAL,
+                source TEXT,
+                updated_at TEXT,
+                raw_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS valuation_multiples_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT,
+                date TEXT,
+                price REAL,
+                market_cap REAL,
+                enterprise_value REAL,
+                pe_ttm REAL,
+                pe_forward REAL,
+                ev_sales REAL,
+                ev_ebitda REAL,
+                fcf_yield REAL,
+                ps_ratio REAL,
+                source TEXT,
+                created_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS peer_valuation_snapshot (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT,
+                peer_ticker TEXT,
+                date TEXT,
+                peer_price REAL,
+                peer_market_cap REAL,
+                peer_ev_sales REAL,
+                peer_ev_ebitda REAL,
+                peer_forward_pe REAL,
+                peer_fcf_yield REAL,
+                revenue_growth REAL,
+                operating_margin REAL,
+                fcf_margin REAL,
+                rule_of_40 REAL,
+                source TEXT,
+                created_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS valuation_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT,
+                run_type TEXT,
+                price_at_run REAL,
+                target_bear REAL,
+                target_base REAL,
+                target_bull REAL,
+                upside_base REAL,
+                confidence_score REAL,
+                inputs_json TEXT,
+                outputs_json TEXT,
+                created_at TEXT
+            );
             """
         )
         migrate_db(conn)

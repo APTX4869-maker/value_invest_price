@@ -134,7 +134,7 @@ function snapshotSearchText(snap) {
     snap.title,
     snap.created_at,
     snap.result?.judgement,
-    snap.result?.confidence,
+    typeof snap.result?.confidence === "string" ? snap.result?.confidence : snap.result?.confidence?.level,
     snap.result?.plain_language?.headline,
     snap.result?.plain_language?.v3_conclusion,
     snap.result?.fair_value_center,

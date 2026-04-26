@@ -5,6 +5,11 @@ import { Stat } from "../components/Stat";
 import { TickerSuggestInput } from "../components/TickerSuggestInput";
 import { formatMoney } from "../utils/formatters";
 
+function confidenceValue(confidence) {
+  if (!confidence) return "-";
+  return typeof confidence === "string" ? confidence : `${confidence.score}/100 · ${confidence.level}`;
+}
+
 export function Watchlist({ watchlist, setTicker, setPage, addTicker, refreshCompany, deleteTicker, purgeTicker, loading, tickerErrors }) {
   const [newTicker, setNewTicker] = useState("");
   const [viewMode, setViewMode] = useState("cards");
@@ -82,7 +87,7 @@ export function Watchlist({ watchlist, setTicker, setPage, addTicker, refreshCom
               </div>
               {valuation ? (
                 <p className="plain-callout">
-                  合理区间约 {formatMoney(valuation.fair_value_range.low, false)} - {formatMoney(valuation.fair_value_range.high, false)}，可信度 {valuation.confidence}。
+                  合理区间约 {formatMoney(valuation.fair_value_range.low, false)} - {formatMoney(valuation.fair_value_range.high, false)}，可信度 {confidenceValue(valuation.confidence)}。
                 </p>
               ) : (
                 <p className="plain-callout">还没有足够数据。先刷新，或者进入估值模型手动补假设。</p>

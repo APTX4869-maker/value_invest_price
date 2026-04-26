@@ -24,6 +24,10 @@ def _delete_company_records(ticker: str, purge: bool = False) -> dict[str, Any]:
         if purge:
             conn.execute("DELETE FROM notes WHERE ticker = ?", (ticker,))
             conn.execute("DELETE FROM valuation_snapshots WHERE ticker = ?", (ticker,))
+            conn.execute("DELETE FROM consensus_estimates WHERE ticker = ?", (ticker,))
+            conn.execute("DELETE FROM valuation_multiples_history WHERE ticker = ?", (ticker,))
+            conn.execute("DELETE FROM peer_valuation_snapshot WHERE ticker = ? OR peer_ticker = ?", (ticker, ticker))
+            conn.execute("DELETE FROM valuation_runs WHERE ticker = ?", (ticker,))
     if purge:
         return {
             "ticker": ticker,
