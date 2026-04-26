@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>价值投资评分体系 V3.0</title>
+    <style>
+        :root {
+            --primary-color: #004080; /* 深蓝 */
+            --secondary-color: #4b8fbd; /* 浅蓝 */
+            --text-color: #212529; /* 深灰 */
+            --light-gray: #f8f9fa; /* 背景灰 */
+            --border-color: #dee2e6; /* 边框灰 */
+            --card-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            --subjective-bg: #fffbf2; /* 主观背景黄 */
+            --objective-bg: #f2f7ff; /* 客观背景蓝 */
+            --red: #dc3545;
+            --yellow: #ffc107;
+            --green: #28a745;
+        }
+        body {
+            font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--light-gray);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            line-height: 1.7;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid var(--primary-color); padding-bottom: 15px; }
+        header h1 { color: var(--primary-color); font-size: 2.5em; margin: 0; }
+        header p { color: #6c757d; font-size: 1.1em; }
+        .intro { background-color: #fff; padding: 15px 20px; border-left: 5px solid var(--secondary-color); margin-bottom: 30px; border-radius: 5px; box-shadow: var(--card-shadow); }
+        .main-content { display: grid; grid-template-columns: 1fr; gap: 30px; }
+        @media (min-width: 1100px) { .main-content { grid-template-columns: 4fr 6fr; } }
+        .section { padding: 20px; border-radius: 8px; }
+        .section-subjective { background-color: var(--subjective-bg); border: 1px solid #ffe8c3; }
+        .section-objective { background-color: var(--objective-bg); border: 1px solid #c9e4fb; }
+        .section h2 { font-size: 1.8em; margin-top: 0; padding-bottom: 10px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+        .section h2 .total-score { font-size: 0.8em; color: #fff; background-color: var(--primary-color); padding: 5px 12px; border-radius: 15px; }
+        .criterion-card { background-color: #fff; border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; margin-bottom: 15px; box-shadow: var(--card-shadow); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .card-header h3 { margin: 0; font-size: 1.3em; color: var(--primary-color); }
+        .weight { background-color: var(--secondary-color); color: white; padding: 4px 12px; border-radius: 15px; font-size: 0.9em; font-weight: bold; }
+        .criterion-card p, .criterion-card ul { margin: 10px 0; color: #495057; }
+        .criterion-card ul { padding-left: 25px; }
+        .criterion-card li { margin-bottom: 8px; }
+        code { background-color: #e9ecef; padding: 3px 6px; border-radius: 4px; font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; word-break: keep-all; white-space: nowrap;}
+
+        /* --- 新的可视化评分范围 --- */
+        .score-range-visual {
+            background-color: #fdfdfd;
+            border: 1px dashed var(--border-color);
+            padding: 15px;
+            margin-top: 15px;
+            border-radius: 5px;
+        }
+        .score-bar {
+            height: 10px;
+            border-radius: 5px;
+            background: linear-gradient(to right, var(--red), var(--yellow), var(--green));
+            margin-bottom: 10px;
+        }
+        .score-endpoints {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9em;
+        }
+        .score-endpoints .zero-points {
+            color: var(--red);
+            text-align: left;
+        }
+        .score-endpoints .five-points {
+            color: var(--green);
+            text-align: right;
+        }
+        .score-endpoints strong {
+            display: block;
+        }
+
+        /* --- Tooltip 悬浮提示 --- */
+        .tooltip { position: relative; display: inline-block; border-bottom: 1px dotted #333; cursor: help; }
+        .tooltip .tooltip-text { visibility: hidden; width: 300px; background-color: #333; color: #fff; text-align: left; border-radius: 6px; padding: 10px; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -150px; opacity: 0; transition: opacity 0.3s; box-shadow: 0 5px 15px rgba(0,0,0,0.3); font-size: 0.9em; line-height: 1.5; }
+        .tooltip .tooltip-text::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent; }
+        .tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+        .tooltip-text strong { color: #87cefa; display: block; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>价值投资评分体系 V3.0</h1>
+            <p>结合主观洞察与客观数据的综合评估框架</p>
+        </header>
+
+        <div class="main-content">
+            <!-- 主观部分 -->
+            <section class="section section-subjective">
+                <h2>主观部分 <span class="total-score">总分 40</span></h2>
+                
+                <div class="criterion-card">
+                    <div class="card-header">
+                        <h3>1、<span class="tooltip">护城河<span class="tooltip-text"><strong>护城河 (Moat)</strong> 指企业抵御竞争对手、维持长期超额利润的结构性优势。是价值投资的基石。</span></span></h3>
+                        <span class="weight">15%</span>
+                    </div>
+                    <p>通过以下四个维度综合评估其宽度和深度：</p>
+                    <ul>
+                        <li><b>无形资产：</b>拥有强大的品牌、关键专利或政府特许经营权吗？</li>
+                        <li><b>转换成本：</b>客户更换到竞争对手产品的金钱、时间或精力成本高吗？</li>
+                        <li><b>网络效应：</b>公司的产品/服务是否用户越多越好用，从而吸引更多用户？</li>
+                        <li><b>成本优势：</b>是否因规模、高效流程或地理位置拥有显著低于同行的成本？</li>
+                    </ul>
+                </div>
+
+                <div class="criterion-card">
+                    <div class="card-header">
+                        <h3>2、<span class="tooltip">地缘风险<span class="tooltip-text"><strong>地缘风险 (Geopolitical Risk)</strong> 指因国家间的政治、军事或经济互动而给企业带来的潜在损失。</span></span></h3>
+                        <span class="weight">5%</span>
+                    </div>
+                    <p>从以下角度评估风险敞口：</p>
+                     <ul>
+                        <li><b>收入与市场：</b>主要收入来源地是否政治稳定？是否过度依赖单一海外市场？</li>
+                        <li><b>生产与供应链：</b>核心制造基地和关键供应商是否位于高风险地区？</li>
+                        <li><b>监管与法律：</b>业务是否易受关税、制裁或特定国家政策（如芯片法案）的打击？</li>
+                    </ul>
+                </div>
+                <!-- 其他主观部分卡片... -->
+                 <div class="criterion-card">
+                    <div class="card-header"><h3>3、回报可预测性</h3><span class="weight">5%</span></div>
+                    <ul>
+                        <li>商业模式是否简单易懂，在个人能力圈内？</li>
+                        <li>所处行业竞争格局是否稳定，而非残酷的“红海”？</li>
+                        <li>过往业绩是稳定增长还是大起大落？</li>
+                    </ul>
+                </div>
+
+                <div class="criterion-card">
+                    <div class="card-header"><h3>4、定价能力</h3><span class="weight">5%</span></div>
+                    <ul>
+                        <li>公司能否在不流失客户的情况下提高价格？</li>
+                        <li>历史上有过伤害利润率的大幅降价促销吗？</li>
+                        <li>利润率是能维持还是在不断被侵蚀？</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 客观部分 -->
+            <section class="section section-objective">
+                <h2>客观部分 <span class="total-score">总分 60</span></h2>
+
+                <div class="criterion-card">
+                    <div class="card-header"><h3>1、财务状况</h3><span class="weight">5%</span></div>
+                    <p>衡量公司短期和中期的偿债能力与破产风险。</p>
+                    <div class="score-range-visual">
+                        <div class="score-bar"></div>
+                        <div class="score-endpoints">
+                            <span class="zero-points"><strong>0分</strong><code>(现金 + 1年FCF) / 借款 < 0.3</code></span>
+                            <span class="five-points"><strong>5分</strong><code>(现金 + 1年FCF) / 借款 > 1</code></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="criterion-card">
+                    <div class="card-header"><h3>2、流通股 <span class="tooltip">CAGR<span class="tooltip-text"><strong>年化复合增长率 (Compound Annual Growth Rate)</strong><br>CAGR = [(期末值/期初值)^(1/年数)] - 1<br>衡量一项数据在特定时期内的平均年增长率。</span></span></h3><span class="weight">5%</span></div>
+                    <p>衡量公司是在回购股票（回报股东）还是在增发股票（稀释股东）。</p>
+                    <div class="score-range-visual">
+                        <div class="score-bar"></div>
+                        <div class="score-endpoints">
+                            <span class="zero-points"><strong>0分</strong><code>流通股CAGR > 0</code></span>
+                            <span class="five-points"><strong>5分</strong><code>流通股CAGR < -3%</code></span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="criterion-card">
+                    <div class="card-header"><h3>3、<span class="tooltip">CAPEX<span class="tooltip-text"><strong>资本支出 (Capital Expenditures)</strong><br>用于购买、维护或升级固定资产（如土地、厂房、设备）的投资。</span></span> / <span class="tooltip">OCF<span class="tooltip-text"><strong>经营活动现金流 (Operating Cash Flow)</strong><br>公司通过主营业务实际收到的现金净流入。这是公司最基本、最重要的造血能力。</span></span></h3><span class="weight">5%</span></div>
+                    <p>⚠️ <b>行业背景是关键。</b>此项衡量资本投入强度。应与同行业公司对比，而非绝对评判。</p>
+                     <div class="score-range-visual">
+                        <div class="score-bar"></div>
+                        <div class="score-endpoints">
+                            <span class="zero-points"><strong>0分</strong><code>CAPEX / OCF > 60%</code></span>
+                            <span class="five-points"><strong>5分</strong><code>CAPEX / OCF < 10%</code></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="criterion-card">
+                    <div class="card-header"><h3>4、<span class="tooltip">R&D<span class="tooltip-text"><strong>研发开支 (Research & Development)</strong><br>为开发新产品或改进现有技术而进行的投入。</span></span> / OCF</h3><span class="weight">5%</span></div>
+                    <p>⚠️ <b>高投入不一定是坏事。</b>对于科技和医疗行业，高研发是构建护城河的源泉。应重点考察研发效率。</p>
+                     <div class="score-range-visual">
+                        <div class="score-bar"></div>
+                        <div class="score-endpoints">
+                            <span class="zero-points"><strong>0分</strong><code>R&D / OCF > 50%</code></span>
+                            <span class="five-points"><strong>5分</strong><code>R&D / OCF < 10%</code></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="criterion-card">
+                    <div class="card-header"><h3>5、<span class="tooltip">SBC<span class="tooltip-text"><strong>股权激励成本 (Stock-Based Compensation)</strong><br>公司授予员工或管理层的股票期权等非现金报酬。会稀释现有股东的权益。</span></span> / OCF</h3><span class="weight">5%</span></div>
+                    <p>衡量股权激励对股东权益的稀释程度。</p>
+                     <div class="score-range-visual">
+                        <div class="score-bar"></div>
+                        <div class="score-endpoints">
+                            <span class="zero-points"><strong>0分</strong><code>SBC / OCF > 25%</code></span>
+                            <span class="five-points"><strong>5分</strong><code>SBC / OCF < 5%</code></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="criterion-card">
+                    <div class="card-header"><h3>6、<span class="tooltip">ROIC<span class="tooltip-text"><strong>投入资本回报率 (Return on Invested Capital)</strong><br>ROIC = 税后净营业利润 / (总有息负债 + 股东权益)<br>衡量公司所有投入的资本创造回报的效率。是评估盈利能力和资本配置效率的黄金标准。</span></span></h3><span class="weight">5%</span></div>
+                    <p>衡量公司使用资本创造利润的效率，是判断一门生意好坏的核心指标。</p>
+                     <div class="score-range-visual">
+                        <div class="score-bar"></div>
+                        <div class="score-endpoints">
+                            <span class="zero-points"><strong>0分</strong><code>ROIC < 5%</code></span>
+                            <span class="five-points"><strong>5分</strong><code>ROIC > 50%</code></span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="criterion-card">
+                    <div class="card-header"><h3>7、<span class="tooltip">FCF<span class="tooltip-text"><strong>自由现金流 (Free Cash Flow)</strong><br>FCF = 经营现金流 - 资本支出<br>衡量公司在支付所有运营开销和资本投资后，真正可以自由支配的钱。是股东价值的直接来源。</span></span> CAGR</h3><span class="weight">5%</span></div>
+                    <p>自由现金流的长期增长能力，直接关系到股东的最终回报。</p>
+                     <div class="score-range-visual">
+                        <div class="score-bar"></div>
+                        <div class="score-endpoints">
+                            <span class="zero-points"><strong>0分</strong><code>FCF CAGR < 5%</code></span>
+                            <span class="five-points"><strong>5分</strong><code>FCF CAGR > 20%</code></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="criterion-card">
+                    <div class="card-header"><h3>8、OCF / <span class="tooltip">OI<span class="tooltip-text"><strong>经营利润 (Operating Income / EBIT)</strong><br>OI = 营收 - 销货成本 - 经营费用<br>也称EBIT (息税前利润)。衡量公司主营业务的盈利能力，排除了利息和税收的影响。</span></span></h3><span class="weight">5%</span></div>
+                    <p>衡量利润的“含金量”。大于1说明公司收回现金的能力很强。</p>
+                     <div class="score-range-visual">
+                        <div class="score-bar"></div>
+                        <div class="score-endpoints">
+                            <span class="zero-points"><strong>0分</strong><code>OCF / OI < 0.2</code></span>
+                            <span class="five-points"><strong>5分</strong><code>OCF / OI > 1</code></span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="criterion-card">
+                    <div class="card-header"><h3>9、营收 CAGR</h3><span class="weight">5%</span></div>
+                    <p>衡量公司市场扩张和成长的速度。</p>
+                     <div class="score-range-visual">
+                        <div class="score-bar"></div>
+                        <div class="score-endpoints">
+                            <span class="zero-points"><strong>0分</strong><code>营收 CAGR < 0</code></span>
+                            <span class="five-points"><strong>5分</strong><code>营收 CAGR > 20%</code></span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="criterion-card">
+                    <div class="card-header"><h3>10、经营利润 (OI)</h3><span class="weight">15%</span></div>
+                    <p>综合评估公司核心业务的盈利能力、成长性和质量。</p>
+                    <ul>
+                        <li><b>OI CAGR (5%):</b> 增长速度。<code>(5分: >20%; 0分: <0)</code></li>
+                        <li><b>经营利润率 (5%):</b> 盈利效率。<code>(5分: >40%; 0分: <0)</code></li>
+                        <li><b>经营利润率 CAGR (5%):</b> 利润率改善趋势，体现定价权。<code>(5分: >2%; 0分: <-4%)</code></li>
+                        <li><b>质量与稳定性 (主观加减分):</b> 利润增长是持续的还是波动的？是否依赖非经常性收益？</li>
+                    </ul>
+                </div>
+            </section>
+        </div>
+    </div>
+</body>
+</html>
