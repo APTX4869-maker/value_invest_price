@@ -15,6 +15,7 @@ LAYER_WEIGHTS: dict[str, dict[str, float]] = {
     "mature_compounder": {"intrinsic": 0.40, "market": 0.50, "analyst": 0.10},
     "consumer_staples": {"intrinsic": 0.42, "market": 0.48, "analyst": 0.10},
     "cyclical": {"intrinsic": 0.30, "market": 0.60, "analyst": 0.10},
+    "memory_semiconductor": {"intrinsic": 0.18, "market": 0.72, "analyst": 0.10},
     "financial": {"intrinsic": 0.00, "market": 0.85, "analyst": 0.15},
     "default": {"intrinsic": 0.35, "market": 0.55, "analyst": 0.10},
 }
@@ -56,9 +57,9 @@ def build_intrinsic_probability_range(
     capex_split: dict[str, Any],
     company_type: str,
 ) -> dict[str, Any]:
-    growth_vol = 0.08 if company_type in {"high_growth_software", "high_growth_profitable_tech", "unprofitable_growth"} else 0.05
-    margin_vol = 0.05 if company_type in {"high_growth_software", "unprofitable_growth"} else 0.035
-    discount_vol = 0.014 if company_type in {"high_growth_software", "high_growth_profitable_tech"} else 0.010
+    growth_vol = 0.08 if company_type in {"high_growth_software", "high_growth_profitable_tech", "unprofitable_growth", "memory_semiconductor"} else 0.05
+    margin_vol = 0.055 if company_type == "memory_semiconductor" else 0.05 if company_type in {"high_growth_software", "unprofitable_growth"} else 0.035
+    discount_vol = 0.014 if company_type in {"high_growth_software", "high_growth_profitable_tech", "memory_semiconductor"} else 0.010
     terminal_vol = 0.006
 
     values: list[float] = []

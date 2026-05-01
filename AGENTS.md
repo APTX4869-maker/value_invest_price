@@ -58,7 +58,7 @@ cd frontend && npm run build
 - `backend/routers/`：按职责拆分的接口层，包含 health、watchlist、companies、valuation、discovery、notes、settings。
 - `backend/schemas.py`：请求体 schema。
 - `backend/dependencies.py`：共享查询和序列化工具。
-- `backend/data_sources.py`：SEC ticker 搜索、SEC companyfacts、Invesco QQQ holdings、免费行情/利率抓取和网络重试。
+- `backend/data_sources.py`：SEC ticker 搜索、SEC companyfacts 年报/最近季度解析、Invesco QQQ holdings、免费行情/利率抓取和网络重试。
 - `backend/db.py`：SQLite 初始化、默认设置、GOOG 种子数据。
 - `backend/discovery.py`：QQQ 发现池、候选股评分、护城河/财务/竞争/数据质量原因生成。
 - `backend/valuation/`：估值 V3.0/V4.1 的核心计算逻辑，包含 assumptions、capex、confidence、dcf、engine、models、multiples、quality、range_engine、reverse。
@@ -89,9 +89,10 @@ cd frontend && npm run build
 - 动态模型权重：已完成基于 forward 数据来源、同行快照、历史估值分位和 DCF 终值依赖度的权重调整。系统估算值会降权，手动/本地共识和同行数据会提高可信度。
 - 本地共识预期：估值模型页已支持录入、保存、清空本地 EPS、收入、EBITDA、FCF、长期 EPS 增速和分析师目标价区间；后端提供 `/api/valuation/consensus/{ticker}`。
 - 金融公司口径：已完成第一轮金融/放贷类公司识别。SOFI 这类 Finance Services 公司会用 `RevenuesNetOfInterestExpense`、税前/净利润等金融口径重建收入和盈利，不再机械使用经营现金流 FCFF 模型。
+- 存储半导体口径：已完成 MU 第一版修正。系统会把 MU 识别为 `memory_semiconductor`，用 SEC 最近 10-Q 单季营收/经营利润和 YTD FCF 外推前瞻锚点，估值权重改为 Forward P/E、EV/EBITDA、EV/Sales 为主，中周期利润只保留为周期风险折价，避免把 AI/HBM 上行周期机械压成传统周期股中周期估值。
 - 前端拆分：已完成第一轮拆分，`frontend/src/main.jsx` 只保留应用状态和页面路由；页面、通用组件、API、格式化工具和数据配置已拆到 `frontend/src/pages/`、`frontend/src/components/`、`frontend/src/api/`、`frontend/src/utils/`、`frontend/src/data/`。
 - 后端拆分：已完成第一轮拆分，`backend/app.py` 只保留应用创建和 router 注册；接口按职责拆到 `backend/routers/`，共享 schema 和依赖放到 `backend/schemas.py`、`backend/dependencies.py`。估值核心已拆到 `backend/valuation/`，发现池逻辑在 `backend/discovery.py`。后续可继续抽离 service 层，把数据库写入和外部数据抓取从 router 中再下沉一层。
-- 数据源健壮性：已完成多轮增强，补了 `ifrs-full` 标签兜底、季度/YTD/20-F/资产负债表项目测试、资产负债表 `CY2025Q4I` frame 支持、SSL EOF/超时/HTTP 429/5xx 重试和错误分类。对于非美元申报公司，当前会明确提示“需要手动汇率转换”，避免静默生成失真估值。后续仍需继续补更多 ADR 样本和自动汇率转换。
+- 数据源健壮性：已完成多轮增强，补了 `ifrs-full` 标签兜底、季度/YTD/20-F/资产负债表项目测试、最近季度和 YTD 现金流快照、资产负债表 `CY2025Q4I` frame 支持、SSL EOF/超时/HTTP 429/5xx 重试和错误分类。对于非美元申报公司，当前会明确提示“需要手动汇率转换”，避免静默生成失真估值。后续仍需继续补更多 ADR 样本和自动汇率转换。
 - 删除策略：已完成第一轮增强，观察池支持“删除观察池”和“彻底删除”两级操作；前者保留笔记和快照，后者连研究笔记与历史快照一起清除，并带双重确认。后续可再补批量清理和快照数量提示。
 - 估值参数模板：已完成前端第一版，支持平台/广告、软件/SaaS、支付、消费品牌、硬件/制造、通用保守模板，并会根据公司画像自动推荐。后续可把模板下沉到后端并允许本地保存自定义模板。
 - QQQ 发现股票：已完成第一版，左侧新增“发现股票”页；默认扫描 QQQ 前 30 大权重公司，按估值置信度优先、低估幅度其次排序，并展示排名原因、护城河、财务质量、行业竞争风险和数据质量。支持刷新并扫描前 30、读取缓存、筛选低估线索/已评估/待补数据、加入观察池、打开公司分析。
@@ -121,6 +122,7 @@ cd frontend && npm run build
 - 当前估值内核已调整为 `V3.0/V4.1 layered probability target price calculator`：品质分继续动态计算，但合理价值中枢改为分层目标价，不再由单一现金流 DCF 决定。
 - V4.1 默认输出三层目标价：内在价值层、市场倍数层、可选分析师目标价层。DCF 在结果里是内在价值锚之一，不等同于最终目标价。
 - NVDA、PLTR 等高成长公司会默认使用前瞻盈利/收入窗口，并结合 Forward P/E、PEG、EV multiples 来避免单年 FCF 过度压低估值。
+- MU/存储半导体使用 `memory_semiconductor` 模板：最近季度的收入和经营利润用于前瞻估算，DCF 和中周期利润只做风险折价；结论应重点解释 HBM 需求、DRAM/NAND 价格、CAPEX 和周期回落风险。
 - 免费数据下的 forward EPS 仍是系统估算值，不是分析师共识；如果用户手动录入本地共识或分析师目标价，应优先替换系统估算值。
 - 金融/放贷类公司不能机械套普通 FCFF DCF。当前已支持第一版金融服务口径：优先使用净利息后收入、税前/净利润和 Forward P/E 主锚；银行、保险、REIT 仍需更专门的估值模型。
 - SOFI 这类 Finance Services 公司此前会因收入字段和 OCF 口径错配导致估值严重失真；当前已修正为金融口径，但仍建议补充真实分析师 EPS 共识和资产质量指标。

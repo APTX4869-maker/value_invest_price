@@ -6,6 +6,7 @@ import pytest
 from backend.data_sources import (
     DataSourceNetworkError,
     build_annual_history,
+    build_recent_period_snapshot,
     detect_reporting_currency,
     fetch_company_facts,
     fetch_price,
@@ -222,6 +223,66 @@ def test_build_annual_history_collects_recent_years():
     assert history[-1]["fiscal_year"] == 2023
     assert history[-1]["revenue"] == 130
     assert history[-1]["capex"] == 8
+
+
+def test_build_recent_period_snapshot_uses_latest_quarter_and_ytd():
+    facts = {
+        "facts": {
+            "us-gaap": {
+                "Revenues": {
+                    "units": {
+                        "USD": [
+                            {"form": "10-Q", "start": "2025-08-29", "end": "2025-11-27", "val": 13_643, "filed": "2025-12-18"},
+                            {"form": "10-Q", "start": "2025-11-28", "end": "2026-02-26", "val": 23_860, "filed": "2026-03-19"},
+                        ]
+                    }
+                },
+                "OperatingIncomeLoss": {
+                    "units": {
+                        "USD": [
+                            {"form": "10-Q", "start": "2025-11-28", "end": "2026-02-26", "val": 16_135, "filed": "2026-03-19"}
+                        ]
+                    }
+                },
+                "NetCashProvidedByUsedInOperatingActivities": {
+                    "units": {
+                        "USD": [
+                            {"form": "10-Q", "start": "2025-08-29", "end": "2026-02-26", "val": 20_314, "filed": "2026-03-19"}
+                        ]
+                    }
+                },
+                "PaymentsToAcquirePropertyPlantAndEquipment": {
+                    "units": {
+                        "USD": [
+                            {"form": "10-Q", "start": "2025-08-29", "end": "2026-02-26", "val": -11_776, "filed": "2026-03-19"}
+                        ]
+                    }
+                },
+                "WeightedAverageNumberOfDilutedSharesOutstanding": {
+                    "units": {
+                        "shares": [
+                            {"form": "10-Q", "start": "2025-11-28", "end": "2026-02-26", "val": 1_142, "filed": "2026-03-19"}
+                        ]
+                    }
+                },
+            }
+        }
+    }
+    fields = {
+        "revenue": (["Revenues"], ["USD"]),
+        "operating_income": (["OperatingIncomeLoss"], ["USD"]),
+        "ocf": (["NetCashProvidedByUsedInOperatingActivities"], ["USD"]),
+        "capex": (["PaymentsToAcquirePropertyPlantAndEquipment"], ["USD"]),
+        "diluted_shares": (["WeightedAverageNumberOfDilutedSharesOutstanding"], ["shares"]),
+    }
+
+    snapshot = build_recent_period_snapshot(facts, fields)
+
+    assert snapshot["latest_quarter"]["revenue"] == 23_860
+    assert snapshot["latest_quarter"]["operating_income"] == 16_135
+    assert snapshot["latest_quarter"]["diluted_shares"] == 1_142
+    assert snapshot["latest_ytd"]["fcf"] == 8_538
+    assert snapshot["latest_quarter"]["annualized_revenue"] > 90_000
 
 
 def test_detect_reporting_currency_returns_non_usd_unit():

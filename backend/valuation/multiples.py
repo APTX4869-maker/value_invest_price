@@ -13,6 +13,7 @@ FALLBACK_MULTIPLES: dict[str, dict[str, tuple[float, float, float]]] = {
     "mature_compounder": {"pe": (16, 22, 28), "ev_ebitda": (11, 15, 19), "ev_sales": (3, 5, 7)},
     "consumer_staples": {"pe": (18, 23, 28), "ev_ebitda": (12, 16, 20), "ev_sales": (3, 5, 7)},
     "cyclical": {"pe": (10, 14, 18), "ev_ebitda": (6, 9, 12), "ev_sales": (1, 2, 3)},
+    "memory_semiconductor": {"pe": (8, 11, 15), "ev_ebitda": (5, 8, 12), "ev_sales": (2, 3.5, 5.5)},
     "unprofitable_growth": {"pe": (0, 0, 0), "ev_ebitda": (0, 0, 0), "ev_sales": (5, 9, 14)},
     "financial": {"pe": (9, 12, 15), "ev_ebitda": (0, 0, 0), "ev_sales": (2, 3, 4)},
     "default": {"pe": (14, 20, 26), "ev_ebitda": (8, 12, 16), "ev_sales": (2, 4, 6)},
@@ -85,8 +86,14 @@ def derive_reasonable_multiples(
         "ev_ebitda": "peer_snapshot" if peer_snapshot and _peer_values(peer_snapshot, "peer_ev_ebitda") else "default_fallback_adjusted",
     }
 
-    ev_sales = tuple(value * rule["multiple_adjustment"] if company_type in {"high_growth_software", "unprofitable_growth"} else value for value in peer_ev_sales)
-    pe_growth_adj = clamp(1 + (growth - 0.08), 0.75, 1.30)
+    if company_type in {"high_growth_software", "unprofitable_growth"}:
+        ev_sales = tuple(value * rule["multiple_adjustment"] for value in peer_ev_sales)
+    elif company_type == "memory_semiconductor":
+        cycle_adjustment = clamp(1 + (growth - 0.15) * 0.45, 0.70, 1.35)
+        ev_sales = tuple(value * cycle_adjustment for value in peer_ev_sales)
+    else:
+        ev_sales = peer_ev_sales
+    pe_growth_adj = clamp(1 + (growth - 0.08), 0.70, 1.45 if company_type == "memory_semiconductor" else 1.30)
     pe = tuple(value * pe_growth_adj if value else 0 for value in peer_pe)
     ev_ebitda = tuple(value * clamp(1 + (facts.operating_margin - 0.20), 0.75, 1.30) if value else 0 for value in peer_ev_ebitda)
 

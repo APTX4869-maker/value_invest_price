@@ -12,6 +12,7 @@ BASE_MAINTENANCE_RATIOS: dict[str, float] = {
     "mature_compounder": 0.65,
     "consumer_staples": 0.75,
     "cyclical": 0.55,
+    "memory_semiconductor": 0.38,
     "financial": 0.30,
     "unprofitable_growth": 0.25,
     "default": 0.50,
@@ -59,7 +60,7 @@ def split_capex(
         confidence = "medium"
         method = "capex_spike_adjusted"
         warnings.append("近两年 CAPEX/OCF 明显上升，系统将一部分识别为成长 CAPEX 或 AI CAPEX 周期。")
-    if company_type in {"high_growth_software", "unprofitable_growth"}:
+    if company_type in {"high_growth_software", "unprofitable_growth", "memory_semiconductor"}:
         confidence = "medium_high"
     if not annual_history:
         confidence = "low"

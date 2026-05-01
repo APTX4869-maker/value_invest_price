@@ -164,6 +164,61 @@ def test_high_growth_target_uses_two_year_forward_inputs():
     assert ev_sales["key_inputs"]["forward_period"] == "fy2"
 
 
+def test_mu_memory_semiconductor_uses_recent_quarter_forward_anchor():
+    facts = {
+        "ticker": "MU",
+        "price": 517.16,
+        "revenue": 37.378e9,
+        "operating_income": 9.77e9,
+        "ocf": 17.525e9,
+        "capex": 15.857e9,
+        "sbc": 972e6,
+        "cash": 9.642e9,
+        "short_investments": 0,
+        "debt_current": 224e6,
+        "debt_long_term": 11.533e9,
+        "diluted_shares": 1.125e9,
+        "ten_year_yield": 0.045,
+        "annual_history": [
+            {"fiscal_year": 2020, "revenue": 21.435e9, "operating_income": 3.003e9, "ocf": 8.306e9, "capex": 8.223e9},
+            {"fiscal_year": 2021, "revenue": 27.705e9, "operating_income": 6.283e9, "ocf": 12.468e9, "capex": 10.030e9},
+            {"fiscal_year": 2022, "revenue": 30.758e9, "operating_income": 9.702e9, "ocf": 15.181e9, "capex": 12.067e9},
+            {"fiscal_year": 2023, "revenue": 15.540e9, "operating_income": -5.745e9, "ocf": 1.559e9, "capex": 7.676e9},
+            {"fiscal_year": 2024, "revenue": 25.111e9, "operating_income": 1.304e9, "ocf": 8.507e9, "capex": 8.386e9},
+            {"fiscal_year": 2025, "revenue": 37.378e9, "operating_income": 9.770e9, "ocf": 17.525e9, "capex": 15.857e9},
+        ],
+        "raw": {
+            "recent_period": {
+                "latest_quarter": {
+                    "revenue": 23.860e9,
+                    "annualized_revenue": 95.440e9,
+                    "operating_income": 16.135e9,
+                    "annualized_operating_income": 64.540e9,
+                    "diluted_shares": 1.142e9,
+                },
+                "latest_ytd": {
+                    "ocf": 20.314e9,
+                    "capex": 11.776e9,
+                    "fcf": 8.538e9,
+                    "annualized_ocf": 40.628e9,
+                    "annualized_capex": 23.552e9,
+                    "annualized_fcf": 17.076e9,
+                },
+            }
+        },
+    }
+
+    result = run_target_price_calculator(facts, ValuationCalculatorRequest(ticker="MU"))
+    models = {model["model"]: model for model in result["model_outputs"]}
+
+    assert result["company_type"] == "memory_semiconductor"
+    assert result["forward_estimates"]["revenue_next_year"]["source"] == "sec_recent_quarter_extrapolated"
+    assert result["target_price"]["base"] > 350
+    assert models["forward_pe"]["key_inputs"]["forward_period"] == "fy2"
+    assert models["forward_pe"]["weight"] > models["mid_cycle_earnings"]["weight"]
+    assert any("HBM" in risk for risk in result["key_risks"])
+
+
 def test_financial_company_uses_earnings_led_market_range():
     facts = {
         "ticker": "SOFI",

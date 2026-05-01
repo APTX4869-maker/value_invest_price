@@ -12,6 +12,7 @@ CompanyType = Literal[
     "mature_compounder",
     "consumer_staples",
     "cyclical",
+    "memory_semiconductor",
     "financial",
     "unprofitable_growth",
     "default",
@@ -46,6 +47,7 @@ class Facts:
     fiscal_year: int | None = None
     annual_history: list[dict[str, Any]] = field(default_factory=list)
     company_profile: dict[str, Any] = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict)
 
     @property
     def market_cap(self) -> float:
@@ -176,4 +178,5 @@ def build_facts(facts_dict: dict[str, Any]) -> Facts:
         fiscal_year=facts_dict.get("fiscal_year"),
         annual_history=list(facts_dict.get("annual_history") or []),
         company_profile=company_profile,
+        raw=raw if isinstance(raw, dict) else {},
     )

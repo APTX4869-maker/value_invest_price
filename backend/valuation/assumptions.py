@@ -13,6 +13,7 @@ SPECIAL_PROFILES: dict[str, dict[str, Any]] = {
     "META": {"company_type": "platform_compounder", "company_state": "平台 / 广告 / AI"},
     "NVDA": {"company_type": "high_growth_profitable_tech", "company_state": "半导体 / AI 周期成长"},
     "PLTR": {"company_type": "high_growth_software", "company_state": "高成长软件 / AI 平台"},
+    "MU": {"company_type": "memory_semiconductor", "company_state": "存储半导体 / AI HBM 周期"},
 }
 
 
@@ -46,6 +47,11 @@ DEFAULT_SCENARIOS: dict[CompanyType, dict[str, dict[str, float]]] = {
         "bear": {"revenue_cagr_5y": -0.02, "operating_margin_terminal": 0.10, "fcf_margin_terminal": 0.08, "discount_rate": 0.11, "terminal_growth": 0.01},
         "base": {"revenue_cagr_5y": 0.03, "operating_margin_terminal": 0.14, "fcf_margin_terminal": 0.10, "discount_rate": 0.10, "terminal_growth": 0.015},
         "bull": {"revenue_cagr_5y": 0.08, "operating_margin_terminal": 0.18, "fcf_margin_terminal": 0.13, "discount_rate": 0.095, "terminal_growth": 0.02},
+    },
+    "memory_semiconductor": {
+        "bear": {"revenue_cagr_5y": 0.04, "operating_margin_terminal": 0.22, "fcf_margin_terminal": 0.12, "discount_rate": 0.115, "terminal_growth": 0.01},
+        "base": {"revenue_cagr_5y": 0.18, "operating_margin_terminal": 0.36, "fcf_margin_terminal": 0.22, "discount_rate": 0.105, "terminal_growth": 0.018},
+        "bull": {"revenue_cagr_5y": 0.30, "operating_margin_terminal": 0.44, "fcf_margin_terminal": 0.30, "discount_rate": 0.10, "terminal_growth": 0.025},
     },
     "unprofitable_growth": {
         "bear": {"revenue_cagr_5y": 0.08, "operating_margin_terminal": 0.10, "fcf_margin_terminal": 0.08, "discount_rate": 0.13, "terminal_growth": 0.02},
@@ -92,6 +98,8 @@ def infer_company_type(facts: Facts, company_profile: dict[str, Any] | None = No
 
     if any(word in text for word in ["bank", "insurance", "reit", "financial", "finance", "lending", "loan", "credit", "broker", "mortgage", "deposit"]):
         return "financial"
+    if any(word in text for word in ["dram", "nand", "memory", "hbm"]) and "semiconductor" in text:
+        return "memory_semiconductor"
     if op_margin < 0 and growth >= 0.12:
         return "unprofitable_growth"
     if any(word in text for word in ["software", "saas", "cloud", "ai platform"]) and growth >= 0.12:
@@ -152,6 +160,7 @@ def resolve_forward_estimates(
         "GOOG": 0.10,
         "GOOGL": 0.10,
         "AAPL": 0.05,
+        "MU": 0.60,
     }
     type_growth = {
         "high_growth_profitable_tech": 0.24,
@@ -160,6 +169,7 @@ def resolve_forward_estimates(
         "mature_compounder": 0.04,
         "consumer_staples": 0.03,
         "cyclical": 0.03,
+        "memory_semiconductor": 0.38,
         "unprofitable_growth": 0.22,
         "financial": 0.04,
         "default": 0.07,
@@ -168,15 +178,19 @@ def resolve_forward_estimates(
     history_growth = historical_revenue_cagr(annual_history, fallback=fallback_growth)
     base_scenario = (scenarios or {}).get("base", {})
     five_year_growth = float(base_scenario.get("revenue_cagr_5y", history_growth))
-    growth = clamp(max(history_growth, fallback_growth, five_year_growth), -0.05, 0.45)
+    growth_ceiling = 0.85 if company_type == "memory_semiconductor" else 0.45
+    growth = clamp(max(history_growth, fallback_growth, five_year_growth), -0.05, growth_ceiling)
     near_term_lift = {
         "high_growth_software": 1.45,
         "high_growth_profitable_tech": 1.30,
         "unprofitable_growth": 1.35,
         "platform_compounder": 1.10,
+        "memory_semiconductor": 1.35,
     }.get(company_type or "default", 1.0)
-    next_growth = clamp(max(growth, five_year_growth * near_term_lift), -0.05, 0.65)
-    year_two_growth = clamp((next_growth + five_year_growth) / 2, -0.05, 0.55)
+    next_growth_ceiling = 0.95 if company_type == "memory_semiconductor" else 0.65
+    year_two_growth_ceiling = 0.75 if company_type == "memory_semiconductor" else 0.55
+    next_growth = clamp(max(growth, five_year_growth * near_term_lift), -0.05, next_growth_ceiling)
+    year_two_growth = clamp((next_growth + five_year_growth) / 2, -0.05, year_two_growth_ceiling)
     margin = clamp(facts.operating_margin, -0.10, 0.65)
     terminal_margin = float(base_scenario.get("operating_margin_terminal", margin))
     margin_next = clamp(margin + (terminal_margin - margin) * 0.30, -0.10, 0.70)
@@ -198,6 +212,34 @@ def resolve_forward_estimates(
         "fcf_next_year": revenue_next * fcf_margin_next,
         "long_term_eps_growth": max(min((next_growth + year_two_growth) / 2, 0.45), 0.06),
     }
+    system_sources = {key: ("system_estimate", "low") for key in system}
+    recent_period = (facts.raw or {}).get("recent_period") if isinstance(facts.raw, dict) else None
+    if company_type == "memory_semiconductor" and isinstance(recent_period, dict):
+        latest_quarter = recent_period.get("latest_quarter") or {}
+        latest_ytd = recent_period.get("latest_ytd") or {}
+        annualized_revenue = float(latest_quarter.get("annualized_revenue") or 0)
+        annualized_operating_income = float(latest_quarter.get("annualized_operating_income") or 0)
+        latest_shares = float(latest_quarter.get("diluted_shares") or facts.diluted_shares or 0)
+        annualized_fcf = float(latest_ytd.get("annualized_fcf") or 0)
+        if annualized_revenue > facts.revenue * 1.20 and latest_shares > 0:
+            revenue_next = max(system["revenue_next_year"], annualized_revenue * 1.05)
+            revenue_2y = max(system["revenue_2y"], revenue_next * 1.12)
+            operating_income_next = max(system["operating_income_next_year"], annualized_operating_income * 0.95)
+            operating_margin_next = clamp(safe_div(operating_income_next, revenue_next), 0.12, 0.55)
+            operating_income_2y = revenue_2y * min(0.58, operating_margin_next + 0.03)
+            fcf_next = max(system["fcf_next_year"], annualized_fcf, revenue_next * 0.16)
+            system.update({
+                "revenue_next_year": revenue_next,
+                "revenue_2y": revenue_2y,
+                "eps_next_year": safe_div(operating_income_next * (1 - tax_rate), latest_shares),
+                "eps_2y": safe_div(operating_income_2y * (1 - tax_rate), latest_shares),
+                "ebitda_next_year": max(system["ebitda_next_year"], operating_income_next * 1.18),
+                "operating_income_next_year": operating_income_next,
+                "fcf_next_year": fcf_next,
+                "long_term_eps_growth": max(system["long_term_eps_growth"], 0.22),
+            })
+            for key in ["revenue_next_year", "revenue_2y", "eps_next_year", "eps_2y", "ebitda_next_year", "operating_income_next_year", "fcf_next_year", "long_term_eps_growth"]:
+                system_sources[key] = ("sec_recent_quarter_extrapolated", "medium")
 
     def read_manual(key: str) -> float | None:
         if consensus is None:
@@ -224,6 +266,7 @@ def resolve_forward_estimates(
         if db_value is not None:
             output[key] = SourcedValue(db_value, "db_consensus", "medium_high")
             continue
-        output[key] = SourcedValue(float(fallback), "system_estimate", "low")
+        source, confidence = system_sources.get(key, ("system_estimate", "low"))
+        output[key] = SourcedValue(float(fallback), source, confidence)
 
     return ForwardEstimates(**output)

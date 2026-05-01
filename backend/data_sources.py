@@ -271,6 +271,57 @@ def annual_values(
     return {year: value for year, (_, _, value) in values.items()}
 
 
+def latest_duration_value(
+    facts: dict[str, Any],
+    tag_candidates: list[str],
+    unit_candidates: list[str],
+    min_days: int,
+    max_days: int,
+    taxonomy_candidates: tuple[str, ...] = PRIMARY_TAXONOMIES,
+) -> dict[str, Any] | None:
+    all_facts = facts.get("facts", {})
+    best: tuple[str, str, float, str, int, int | None, str] | None = None
+    for taxonomy in taxonomy_candidates:
+        taxonomy_facts = all_facts.get(taxonomy, {})
+        for tag in tag_candidates:
+            tag_data = taxonomy_facts.get(tag, {})
+            units = tag_data.get("units", {})
+            for unit in unit_candidates:
+                for item in units.get(unit, []):
+                    form = item.get("form", "")
+                    value = item.get("val")
+                    end = item.get("end")
+                    start = item.get("start")
+                    if form not in {"10-Q", "10-K", "20-F", "40-F"} or value is None or not end or not start:
+                        continue
+                    duration_days = (datetime.fromisoformat(end) - datetime.fromisoformat(start)).days
+                    if not (min_days <= duration_days <= max_days):
+                        continue
+                    key = (end, item.get("filed", ""))
+                    if best is None or key > (best[0], best[1]):
+                        best = (
+                            end,
+                            item.get("filed", ""),
+                            float(value),
+                            start,
+                            duration_days,
+                            item.get("fy"),
+                            item.get("fp", ""),
+                        )
+    if best is None:
+        return None
+    end, filed, value, start, duration_days, fiscal_year, fiscal_period = best
+    return {
+        "value": value,
+        "start": start,
+        "end": end,
+        "filed": filed,
+        "duration_days": duration_days,
+        "fiscal_year": fiscal_year,
+        "fiscal_period": fiscal_period,
+    }
+
+
 def build_annual_history(facts: dict[str, Any], fields: dict[str, tuple[list[str], list[str]]]) -> list[dict[str, Any]]:
     series_by_key: dict[str, dict[int, float]] = {}
     years: set[int] = set()
@@ -293,6 +344,64 @@ def build_annual_history(facts: dict[str, Any], fields: dict[str, tuple[list[str
         if has_any:
             history.append(row)
     return history
+
+
+def build_recent_period_snapshot(facts: dict[str, Any], fields: dict[str, tuple[list[str], list[str]]]) -> dict[str, Any]:
+    revenue_q = latest_duration_value(facts, *fields["revenue"], min_days=70, max_days=115)
+    operating_income_q = latest_duration_value(facts, *fields["operating_income"], min_days=70, max_days=115)
+    shares_q = latest_duration_value(facts, *fields["diluted_shares"], min_days=70, max_days=115)
+    ocf_ytd = latest_duration_value(facts, *fields["ocf"], min_days=150, max_days=285)
+    capex_ytd = latest_duration_value(facts, *fields["capex"], min_days=150, max_days=285)
+
+    latest_quarter: dict[str, Any] = {}
+    if revenue_q:
+        scale = 365 / max(1, revenue_q["duration_days"])
+        latest_quarter.update({
+            "revenue": revenue_q["value"],
+            "annualized_revenue": revenue_q["value"] * scale,
+            "start": revenue_q["start"],
+            "end": revenue_q["end"],
+            "filed": revenue_q["filed"],
+            "duration_days": revenue_q["duration_days"],
+            "fiscal_year": revenue_q.get("fiscal_year"),
+            "fiscal_period": revenue_q.get("fiscal_period"),
+        })
+    if operating_income_q:
+        scale = 365 / max(1, operating_income_q["duration_days"])
+        latest_quarter["operating_income"] = operating_income_q["value"]
+        latest_quarter["annualized_operating_income"] = operating_income_q["value"] * scale
+    if shares_q:
+        latest_quarter["diluted_shares"] = shares_q["value"]
+    if latest_quarter.get("revenue"):
+        latest_quarter["operating_margin"] = (latest_quarter.get("operating_income") or 0) / latest_quarter["revenue"]
+
+    latest_ytd: dict[str, Any] = {}
+    if ocf_ytd:
+        scale = 365 / max(1, ocf_ytd["duration_days"])
+        latest_ytd.update({
+            "ocf": ocf_ytd["value"],
+            "annualized_ocf": ocf_ytd["value"] * scale,
+            "start": ocf_ytd["start"],
+            "end": ocf_ytd["end"],
+            "filed": ocf_ytd["filed"],
+            "duration_days": ocf_ytd["duration_days"],
+            "fiscal_year": ocf_ytd.get("fiscal_year"),
+            "fiscal_period": ocf_ytd.get("fiscal_period"),
+        })
+    if capex_ytd:
+        scale = 365 / max(1, capex_ytd["duration_days"])
+        capex_value = abs(capex_ytd["value"])
+        latest_ytd["capex"] = capex_value
+        latest_ytd["annualized_capex"] = capex_value * scale
+    if latest_ytd.get("ocf") is not None and latest_ytd.get("capex") is not None:
+        latest_ytd["fcf"] = latest_ytd["ocf"] - latest_ytd["capex"]
+        latest_ytd["annualized_fcf"] = latest_ytd["annualized_ocf"] - latest_ytd["annualized_capex"]
+
+    return {
+        "latest_quarter": latest_quarter,
+        "latest_ytd": latest_ytd,
+        "source": "SEC companyfacts recent 10-Q/10-K periods",
+    }
 
 
 def detect_reporting_currency(
@@ -495,6 +604,7 @@ def fetch_company_facts(
         if fy:
             fiscal_years.append(fy)
     output["annual_history"] = build_annual_history(facts, fields)
+    output["recent_period"] = build_recent_period_snapshot(facts, fields)
     output["fiscal_year"] = max(fiscal_years) if fiscal_years else None
     reporting_currency = detect_reporting_currency(
         facts,
@@ -520,6 +630,7 @@ def fetch_company_facts(
         "sec_name": output["name"],
         "sec_meta": output["sec_meta"],
         "reporting_currency": reporting_currency or "USD",
+        "recent_period": output.get("recent_period", {}),
         "normalization": {
             "statement_type": "financial_services" if is_financial else "operating_company",
             "notes": [

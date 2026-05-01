@@ -17,6 +17,7 @@ from ..dependencies import get_company_or_404, get_facts_or_404, get_setting, se
 from ..peer_recommendations import recommend_peers
 from ..schemas import PeersRequest, PriceOverrideRequest
 from ..valuation import run_valuation
+from ..valuation.assumptions import SPECIAL_PROFILES
 
 
 router = APIRouter(prefix="/api", tags=["companies"])
@@ -236,7 +237,11 @@ def refresh_company(ticker: str) -> dict[str, Any]:
     ts = now_iso()
     profile = build_company_profile(ticker, fetched.get("name") or ticker, fetched.get("sec_meta", {}))
     normalization = (fetched.get("raw_json") or {}).get("normalization") or {}
-    profile_company_type = "金融 / 金融科技" if normalization.get("statement_type") == "financial_services" else "稳定复利公司"
+    profile_company_type = (
+        "金融 / 金融科技"
+        if normalization.get("statement_type") == "financial_services"
+        else SPECIAL_PROFILES.get(ticker, {}).get("company_state", "稳定复利公司")
+    )
     with connect() as conn:
         conn.execute(
             """

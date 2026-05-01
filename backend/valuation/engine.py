@@ -71,6 +71,12 @@ def _weight_reason(model: str, company_type: str, source: str = "") -> str:
     if company_type == "financial" and model == "ev_sales":
         suffix = f" 倍数来源：{source}。" if source else ""
         return "金融/金融科技公司的 EV/Revenue 只作为收入规模交叉校验，不替代盈利和资产质量分析。" + suffix
+    if company_type == "memory_semiconductor" and model == "forward_pe":
+        suffix = f" 倍数来源：{source}。" if source else ""
+        return "存储半导体处在 AI/HBM 上行周期时，Forward P/E 更能反映市场按未来盈利定价的方式，但需要留意周期回落。" + suffix
+    if company_type == "memory_semiconductor" and model == "mid_cycle_earnings":
+        suffix = f" 倍数来源：{source}。" if source else ""
+        return "存储价格和产能周期会让利润剧烈波动，中周期利润作为风险折价，不再作为唯一主锚。" + suffix
     reasons = {
         "three_stage_dcf": "DCF 是该公司类型的内在价值锚，且 CAPEX 已拆分维护性与成长性。",
         "forward_pe": "盈利已经可用时，Forward P/E 更接近市场给 12M 目标价的方式。",
@@ -96,7 +102,7 @@ def _build_model_outputs(
     reverse: dict[str, Any],
 ) -> list[ModelOutput]:
     weights = BASE_WEIGHTS.get(company_type, BASE_WEIGHTS["default"])
-    use_two_year_forward = company_type in {"high_growth_software", "high_growth_profitable_tech", "platform_compounder"}
+    use_two_year_forward = company_type in {"high_growth_software", "high_growth_profitable_tech", "platform_compounder", "memory_semiconductor"}
     eps_item = forward["eps_2y"] if use_two_year_forward and forward["eps_2y"]["value"] else forward["eps_next_year"]
     revenue_item = forward["revenue_2y"] if use_two_year_forward and forward["revenue_2y"]["value"] else forward["revenue_next_year"]
     eps = (eps_item["value"] or 0)
@@ -199,9 +205,13 @@ def _build_model_outputs(
             _weight_reason("fcf_yield", company_type),
         ),
     ]
-    if company_type == "cyclical":
+    if company_type in {"cyclical", "memory_semiconductor"}:
         operating_values = [float(row.get("operating_income") or 0) for row in facts.annual_history if row.get("operating_income")]
         mid_cycle = sum(operating_values[-10:]) / len(operating_values[-10:]) if operating_values else facts.operating_income
+        warning = "周期股估值使用中周期利润，避免峰值利润外推。"
+        if company_type == "memory_semiconductor":
+            mid_cycle = max(mid_cycle, facts.operating_income * 0.65)
+            warning = "存储半导体保留中周期利润校验，但 AI/HBM 上行期不再只看历史均值。"
         models.append(
             ModelOutput(
                 "mid_cycle_earnings",
@@ -213,7 +223,7 @@ def _build_model_outputs(
                 {"mid_cycle_operating_income": mid_cycle, "pe_multiples": pe},
                 {"history": "reported", "multiples": multiples["sources"]["pe"]},
                 _weight_reason("mid_cycle_earnings", company_type),
-                ["周期股估值使用中周期利润，避免峰值利润外推。"],
+                [warning],
             )
         )
     models.append(
@@ -346,6 +356,8 @@ def _key_risks(company_type: str, reverse_dcf_output: dict[str, Any], data_quali
         risks.append("当前价格隐含较高增长或利润率兑现要求。")
     if company_type in {"high_growth_software", "high_growth_profitable_tech"}:
         risks.append("高成长估值对收入增速放缓和倍数收缩高度敏感。")
+    if company_type == "memory_semiconductor":
+        risks.append("存储半导体估值对 HBM 需求、DRAM/NAND 价格和资本开支周期高度敏感。")
     if capex_split.get("growth_capex", 0) > capex_split.get("maintenance_capex", 0):
         risks.append("成长 CAPEX 需要在未来转化为更高收入或现金流，否则 DCF 会下修。")
     if data_quality.get("system_estimates"):
