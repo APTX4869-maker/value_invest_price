@@ -1,6 +1,7 @@
 import {
   BarChart3,
   BookOpen,
+  Compass,
   FileClock,
   NotebookPen,
   Search,
@@ -9,6 +10,7 @@ import {
 
 export const pages = [
   { id: "watchlist", label: "观察池", icon: Search },
+  { id: "discovery", label: "发现股票", icon: Compass },
   { id: "company", label: "公司分析", icon: BookOpen },
   { id: "valuation", label: "估值模型", icon: SlidersHorizontal },
   { id: "peers", label: "同行比较", icon: BarChart3 },

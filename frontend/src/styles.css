@@ -1042,6 +1042,44 @@ mark {
   gap: 12px;
 }
 
+.valuation-layer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.valuation-layer-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffef9;
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.valuation-layer-card div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.valuation-layer-card span,
+.valuation-layer-card small,
+.valuation-layer-card p {
+  color: var(--muted);
+}
+
+.valuation-layer-card strong {
+  font-size: 24px;
+}
+
+.valuation-layer-card p {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 700;
+}
+
 .plain-model-card {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1066,6 +1104,13 @@ mark {
 }
 
 .simple-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.consensus-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -1099,6 +1144,24 @@ mark {
 
 .soft-details {
   margin-top: 14px;
+}
+
+.analyst-target-box {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbf5;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.analyst-target-box h4 {
+  margin: 4px 0 6px;
+  font-size: 18px;
+}
+
+.analyst-target-box p {
+  margin: 0 0 12px;
+  color: var(--muted);
 }
 
 .target-range {
@@ -1480,6 +1543,120 @@ pre {
 
 .peer-table tr:last-child td {
   border-bottom: 0;
+}
+
+.discovery-hero {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.34fr);
+}
+
+.section-title-row,
+.discovery-hero-actions,
+.discovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.discovery-hero h2 {
+  font-size: 30px;
+  margin: 12px 0 8px;
+}
+
+.discovery-hero-actions {
+  justify-content: flex-end;
+}
+
+.discovery-table {
+  min-width: 1320px;
+}
+
+.discovery-table th,
+.discovery-table td {
+  vertical-align: top;
+}
+
+.discovery-table td:first-child small {
+  color: var(--muted);
+}
+
+.discovery-focus-row td {
+  background: #f4faef;
+}
+
+.discovery-price-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 92px;
+}
+
+.discovery-price-cell span {
+  color: var(--muted);
+}
+
+.discovery-price-cell strong {
+  color: var(--green);
+}
+
+.discovery-summary {
+  min-width: 260px;
+  max-width: 420px;
+  margin: 0 0 8px;
+  color: var(--ink) !important;
+  line-height: 1.5;
+}
+
+.discovery-reasons {
+  max-width: 620px;
+}
+
+.discovery-reasons summary {
+  width: max-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--green);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.discovery-reasons[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.discovery-reason-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffef9;
+}
+
+.discovery-reason-grid div {
+  min-width: 0;
+}
+
+.discovery-reason-grid strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--ink);
+}
+
+.discovery-reason-grid ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.icon-button {
+  width: 34px;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
 }
 
 .current-peer-row td {

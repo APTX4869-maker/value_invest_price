@@ -6,6 +6,24 @@ import { inferValuationTemplate, valuationTemplates } from "../data/valuationTem
 import { buildValuationMarkdown, downloadMarkdown } from "../utils/exportMarkdown";
 import { ValuationResult } from "./ValuationResult";
 
+const emptyConsensus = {
+  eps_next_year: "",
+  eps_2y: "",
+  revenue_next_year: "",
+  revenue_2y: "",
+  ebitda_next_year: "",
+  operating_income_next_year: "",
+  fcf_next_year: "",
+  long_term_eps_growth: "",
+};
+
+const emptyAnalystTarget = {
+  low: "",
+  median: "",
+  high: "",
+  source: "",
+};
+
 export function ValuationModel({ ticker, companyData, valuationResult, setValuationResult, saveSnapshot, notify }) {
   const recommendedTemplateId = useMemo(
     () => inferValuationTemplate(companyData?.company || { ticker }),
@@ -13,18 +31,46 @@ export function ValuationModel({ ticker, companyData, valuationResult, setValuat
   );
   const [selectedTemplate, setSelectedTemplate] = useState(recommendedTemplateId);
   const [assumptions, setAssumptions] = useState(valuationTemplates[recommendedTemplateId].assumptions);
-  const [consensus, setConsensus] = useState({
-    eps_next_year: "",
-    revenue_next_year: "",
-    ebitda_next_year: "",
-    fcf_next_year: "",
-    long_term_eps_growth: "",
-  });
+  const [consensus, setConsensus] = useState(emptyConsensus);
+  const [analystTarget, setAnalystTarget] = useState(emptyAnalystTarget);
   const [busy, setBusy] = useState(false);
+  const [consensusBusy, setConsensusBusy] = useState(false);
 
   useEffect(() => {
     applyTemplate(recommendedTemplateId);
   }, [recommendedTemplateId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setConsensus(emptyConsensus);
+    setAnalystTarget(emptyAnalystTarget);
+    async function loadConsensus() {
+      try {
+        const stored = await api(`/api/valuation/consensus/${ticker}`);
+        if (cancelled) return;
+        if (!stored) {
+          setConsensus(emptyConsensus);
+          return;
+        }
+        setConsensus({
+          eps_next_year: stored.eps_next_year ?? "",
+          eps_2y: stored.eps_2y ?? "",
+          revenue_next_year: stored.revenue_next_year ?? "",
+          revenue_2y: stored.revenue_2y ?? "",
+          ebitda_next_year: stored.ebitda_next_year ?? "",
+          operating_income_next_year: stored.operating_income_next_year ?? "",
+          fcf_next_year: stored.fcf_next_year ?? "",
+          long_term_eps_growth: stored.long_term_eps_growth !== null && stored.long_term_eps_growth !== undefined ? Number(stored.long_term_eps_growth) * 100 : "",
+        });
+      } catch (error) {
+        if (!cancelled) notify?.(error.message, "error", "读取本地共识失败");
+      }
+    }
+    loadConsensus();
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker]);
 
   function applyTemplate(templateId) {
     const template = valuationTemplates[templateId] || valuationTemplates.conservative;
@@ -50,6 +96,12 @@ export function ValuationModel({ ticker, companyData, valuationResult, setValuat
           .filter(([, value]) => value !== "" && value !== null && value !== undefined)
           .map(([key, value]) => [key, key.includes("growth") ? Number(value) / 100 : Number(value)])
       );
+      const analystPayload = {
+        ...(analystTarget.low !== "" ? { analyst_target_low: Number(analystTarget.low) } : {}),
+        ...(analystTarget.median !== "" ? { analyst_target_median: Number(analystTarget.median) } : {}),
+        ...(analystTarget.high !== "" ? { analyst_target_high: Number(analystTarget.high) } : {}),
+        ...(analystTarget.source ? { analyst_target_source: analystTarget.source } : {}),
+      };
       const result = await api("/api/valuation/target", {
         method: "POST",
         body: JSON.stringify({
@@ -68,6 +120,7 @@ export function ValuationModel({ ticker, companyData, valuationResult, setValuat
           use_capex_split: true,
           manual_overrides: {
             maintenance_capex_ratio: pct("maintenance_capex_ratio"),
+            ...analystPayload,
           },
         }),
       });
@@ -77,6 +130,39 @@ export function ValuationModel({ ticker, companyData, valuationResult, setValuat
       notify?.(error.message, "error", "估值计算失败");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function saveConsensus() {
+    setConsensusBusy(true);
+    try {
+      const consensusPayload = Object.fromEntries(
+        Object.entries(consensus)
+          .filter(([, value]) => value !== "" && value !== null && value !== undefined)
+          .map(([key, value]) => [key, key.includes("growth") ? Number(value) / 100 : Number(value)])
+      );
+      await api(`/api/valuation/consensus/${ticker}`, {
+        method: "PUT",
+        body: JSON.stringify({ ...consensusPayload, source: "manual_consensus" }),
+      });
+      notify?.(`${ticker} 的本地共识预期已保存。`, "success", "保存完成");
+    } catch (error) {
+      notify?.(error.message, "error", "保存共识失败");
+    } finally {
+      setConsensusBusy(false);
+    }
+  }
+
+  async function clearConsensus() {
+    setConsensusBusy(true);
+    try {
+      await api(`/api/valuation/consensus/${ticker}`, { method: "DELETE" });
+      setConsensus(emptyConsensus);
+      notify?.(`${ticker} 的本地共识预期已清空。`, "success", "已清空");
+    } catch (error) {
+      notify?.(error.message, "error", "清空共识失败");
+    } finally {
+      setConsensusBusy(false);
     }
   }
 
@@ -94,8 +180,8 @@ export function ValuationModel({ ticker, companyData, valuationResult, setValuat
       <div className="reading-header">
         <div>
           <p className="eyebrow">目标价计算器</p>
-          <h2>先看合理价格区间</h2>
-          <p>默认用白话解释结果。你只需要关心：现在价格在区间的哪里，以及这个价格要求未来做到什么。</p>
+          <h2>先看分层目标价区间</h2>
+          <p>默认把内在价值、市场倍数和外部目标价拆开解释。你只需要关心：当前价落在哪层假设里。</p>
         </div>
         <div className="header-actions">
           <button onClick={run} disabled={busy}><LineChart size={16} />重新计算</button>
@@ -148,13 +234,20 @@ export function ValuationModel({ ticker, companyData, valuationResult, setValuat
           </div>
         </div>
         <details className="formula-box soft-details">
-          <summary>高级设置：我知道 EPS、收入、EBITDA 或更细假设</summary>
-          <p className="muted">这些数据如果你从券商、财报或分析师共识里看到，可以手动填。留空时系统会用历史数据估算，并在结果里标注“非市场共识”。</p>
+          <summary>高级设置：我知道 EPS、收入、EBITDA、FCF 或分析师目标价</summary>
+          <p className="muted">这些数据如果你从券商、财报或分析师共识里看到，可以手动填。保存后会进入本地共识表；留空时系统会用历史数据估算，并标注“非市场共识”。</p>
+          <div className="consensus-actions">
+            <button type="button" onClick={saveConsensus} disabled={consensusBusy}>保存本地共识</button>
+            <button type="button" className="ghost" onClick={clearConsensus} disabled={consensusBusy}>清空本地共识</button>
+          </div>
           <div className="assumption-grid">
             {[
               ["eps_next_year", "明年每股收益 EPS $"],
+              ["eps_2y", "后年每股收益 EPS $"],
               ["revenue_next_year", "明年收入 Revenue $"],
+              ["revenue_2y", "后年收入 Revenue $"],
               ["ebitda_next_year", "明年 EBITDA $"],
+              ["operating_income_next_year", "明年经营利润 $"],
               ["fcf_next_year", "明年自由现金流 FCF $"],
               ["long_term_eps_growth", "长期 EPS 增长 %"],
             ].map(([key, label]) => (
@@ -163,6 +256,31 @@ export function ValuationModel({ ticker, companyData, valuationResult, setValuat
                 <input type="number" value={consensus[key]} onChange={(event) => setConsensus({ ...consensus, [key]: event.target.value })} placeholder="留空使用系统估算" />
               </label>
             ))}
+          </div>
+          <div className="analyst-target-box">
+            <div>
+              <span className="eyebrow">外部目标价</span>
+              <h4>可选：把分析师目标价作为单独一层</h4>
+              <p>这里不会覆盖系统估值，只会按后端权重混入综合区间。</p>
+            </div>
+            <div className="assumption-grid">
+              {[
+                ["low", "目标价低位 $"],
+                ["median", "目标价中位数 $"],
+                ["high", "目标价高位 $"],
+                ["source", "来源备注"],
+              ].map(([key, label]) => (
+                <label key={key}>
+                  <span>{label}</span>
+                  <input
+                    type={key === "source" ? "text" : "number"}
+                    value={analystTarget[key]}
+                    onChange={(event) => setAnalystTarget({ ...analystTarget, [key]: event.target.value })}
+                    placeholder={key === "source" ? "例如券商共识 / 手动整理" : "留空不使用"}
+                  />
+                </label>
+              ))}
+            </div>
           </div>
           <div className="assumption-grid">
             {[

@@ -8,14 +8,21 @@ function tableRow(cells) {
   return `| ${cells.map((cell) => cell ?? "-").join(" | ")} |`;
 }
 
+function confidenceLabel(confidence) {
+  if (!confidence || typeof confidence === "string") return confidence;
+  return `${confidence.score}/100 · ${confidence.level}`;
+}
+
 export function buildValuationMarkdown({ ticker, companyData, result }) {
   const company = companyData?.company || {};
   const facts = companyData?.facts || {};
   const summary = result?.v3_summary || {};
+  const target = result?.target_price || {};
+  const layers = result?.valuation_layers || {};
   const marketRange = summary.market_reasonable_range || result?.fair_value_range || {};
   const conservativeRange = summary.conservative_range || {};
   const optimisticRange = summary.optimistic_growth_range || {};
-  const models = result?.valuation_models || [];
+  const models = result?.model_outputs || result?.valuation_models || [];
   const watch = result?.plain_language?.watch || [];
 
   return [
@@ -32,20 +39,21 @@ export function buildValuationMarkdown({ ticker, companyData, result }) {
     "## 核心价格区间",
     "",
     line("当前价", formatMoney(result?.current_price, false)),
-    line("综合合理区间", `${formatMoney(marketRange.low, false)} - ${formatMoney(marketRange.high, false)}`),
-    line("合理中枢", formatMoney(marketRange.base || result?.fair_value_center, false)),
+    line("综合目标价区间", `${formatMoney(target.range_low || marketRange.low, false)} - ${formatMoney(target.range_high || marketRange.high, false)}`),
+    line("综合中枢", formatMoney(target.base || marketRange.base || result?.fair_value_center, false)),
     line("保守买入区", `${formatMoney(result?.margin_of_safety_buy_price?.low, false)} - ${formatMoney(result?.margin_of_safety_buy_price?.high, false)}`),
     line("高风险高估区", `高于 ${formatMoney(result?.overvalued_price, false)}`),
     line("当前判断", result?.judgement),
-    line("估值可信度", result?.confidence),
+    line("估值可信度", confidenceLabel(result?.confidence)),
     "",
-    "## 三层估值区间",
+    "## 分层估值区间",
     "",
     tableRow(["区间", "低位", "中枢", "高位", "含义"]),
     tableRow(["---", "---:", "---:", "---:", "---"]),
-    tableRow(["保守价值", formatMoney(conservativeRange.low, false), formatMoney(conservativeRange.base, false), formatMoney(conservativeRange.high, false), "只相信现金流和保守成长"]),
-    tableRow(["市场合理", formatMoney(marketRange.low, false), formatMoney(marketRange.base, false), formatMoney(marketRange.high, false), "综合市场常用估值口径"]),
-    tableRow(["乐观成长", formatMoney(optimisticRange.low, false), formatMoney(optimisticRange.base, false), formatMoney(optimisticRange.high, false), "需要成长故事继续兑现"]),
+    tableRow(["DCF 概率内在价值", formatMoney(layers.intrinsic?.range_low || conservativeRange.low, false), formatMoney(layers.intrinsic?.base || conservativeRange.base, false), formatMoney(layers.intrinsic?.range_high || conservativeRange.high, false), "现金流、折现率和终值扰动后的 P10/P50/P90"]),
+    tableRow(["市场倍数目标价", formatMoney(layers.market?.range_low || marketRange.low, false), formatMoney(layers.market?.base || marketRange.base, false), formatMoney(layers.market?.range_high || marketRange.high, false), "Forward P/E、EV/Sales、EV/EBITDA、FCF Yield"]),
+    tableRow(["外部分析师目标价", formatMoney(layers.analyst?.range_low, false), formatMoney(layers.analyst?.base, false), formatMoney(layers.analyst?.range_high, false), layers.analyst ? "手动或外部共识输入" : "未使用"]),
+    tableRow(["乐观成长旧视图", formatMoney(optimisticRange.low, false), formatMoney(optimisticRange.base, false), formatMoney(optimisticRange.high, false), "兼容旧版展示"]),
     "",
     "## 公司与业务",
     "",
@@ -75,9 +83,9 @@ export function buildValuationMarkdown({ ticker, companyData, result }) {
     tableRow(["---", "---:", "---:", "---:", "---:"]),
     ...models.filter((item) => item.weight > 0).map((item) => tableRow([
       item.label,
-      formatMoney(item.low, false),
+      formatMoney(item.bear ?? item.low, false),
       formatMoney(item.base, false),
-      formatMoney(item.high, false),
+      formatMoney(item.bull ?? item.high, false),
       formatPercent(item.weight),
     ])),
     "",

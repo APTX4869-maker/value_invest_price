@@ -6,8 +6,9 @@
 
 - 观察池：管理关注公司，查看当前估值判断。
 - 公司分析：用白话解释核心财务指标和关键风险。
-- 估值模型：运行 DCF、Owner Earnings、反向 DCF 和三情景估值。
+- 估值模型：运行分层目标价、DCF 概率区间、Forward P/E、PEG、EV multiples、FCF Yield、反向 DCF 和三情景估值。
 - 同行比较：维护同行列表并辅助校验估值判断。
+- 发现股票：默认扫描 QQQ 前 30 大权重公司，按估值置信度、低估幅度、护城河、财务质量和行业竞争风险生成研究优先队列。
 - 研究笔记：保存投资假设、风险清单和复盘。
 - 历史与设置：保存估值快照，维护数据源和默认参数。
 
@@ -17,7 +18,7 @@
 
 - 后端：Python、FastAPI、SQLite。
 - 前端：React、Vite、lucide-react。
-- 数据源：SEC companyfacts / company tickers、Yahoo chart 免费行情通道、手动设置项。
+- 数据源：SEC companyfacts / company tickers、Yahoo chart 免费行情通道、Invesco QQQ 官方持仓 API、FRED 10 年期美债、Alpha Vantage 可选兜底、手动设置项。
 - 本地数据：`data/value_invest.db`，不应提交到仓库。
 
 ## 常用命令
@@ -54,15 +55,16 @@ cd frontend && npm run build
 ## 代码结构
 
 - `backend/app.py`：FastAPI 应用入口、生命周期和 router 注册。
-- `backend/routers/`：按职责拆分的接口层，包含 health、watchlist、companies、valuation、notes、settings。
+- `backend/routers/`：按职责拆分的接口层，包含 health、watchlist、companies、valuation、discovery、notes、settings。
 - `backend/schemas.py`：请求体 schema。
 - `backend/dependencies.py`：共享查询和序列化工具。
-- `backend/data_sources.py`：SEC ticker 搜索、SEC companyfacts、免费行情抓取。
+- `backend/data_sources.py`：SEC ticker 搜索、SEC companyfacts、Invesco QQQ holdings、免费行情/利率抓取和网络重试。
 - `backend/db.py`：SQLite 初始化、默认设置、GOOG 种子数据。
-- `backend/valuation.py`：估值 V3.0 的核心计算逻辑。
-- `backend/tests/test_valuation.py`：估值公式基础测试。
+- `backend/discovery.py`：QQQ 发现池、候选股评分、护城河/财务/竞争/数据质量原因生成。
+- `backend/valuation/`：估值 V3.0/V4.1 的核心计算逻辑，包含 assumptions、capex、confidence、dcf、engine、models、multiples、quality、range_engine、reverse。
+- `backend/tests/`：后端测试，覆盖估值公式、目标价计算、数据源解析、金融公司口径、共识预期、错误提示、同行比较和发现池。
 - `frontend/src/main.jsx`：前端入口，保留应用状态、数据加载和页面切换。
-- `frontend/src/pages/`：六个核心页面。
+- `frontend/src/pages/`：核心页面，包括 Watchlist、CompanyAnalysis、ValuationModel、ValuationResult、PeersPage、DiscoveryPage、NotesPage、HistorySettings。
 - `frontend/src/components/`：通用 UI 组件，例如 Shell、Ticker 输入提示、指标解释、徽章和空状态。
 - `frontend/src/api/`、`frontend/src/utils/`、`frontend/src/data/`：本地 API 客户端、格式化工具、指标解释和估值模板。
 - `frontend/src/styles.css`：视觉样式、响应式布局、卡片/列表视图。
@@ -82,35 +84,45 @@ cd frontend && npm run build
 
 ### 高优先级
 
+- 估值内核 V4.1：已完成分层概率目标价。最终目标价不再由单一 DCF 决定，而是组合内在价值层、市场倍数层和可选分析师目标价层；反向 DCF 只做解释校验，不参与加权目标价。
+- 高成长公司估值修正：NVDA、PLTR 等高成长/平台型公司会优先使用 FY2 或 FY2 proxy 的 forward EPS / revenue / EBITDA / FCF，避免单年 FCF 或旧财务数据把估值中枢压得过低。
+- 动态模型权重：已完成基于 forward 数据来源、同行快照、历史估值分位和 DCF 终值依赖度的权重调整。系统估算值会降权，手动/本地共识和同行数据会提高可信度。
+- 本地共识预期：估值模型页已支持录入、保存、清空本地 EPS、收入、EBITDA、FCF、长期 EPS 增速和分析师目标价区间；后端提供 `/api/valuation/consensus/{ticker}`。
+- 金融公司口径：已完成第一轮金融/放贷类公司识别。SOFI 这类 Finance Services 公司会用 `RevenuesNetOfInterestExpense`、税前/净利润等金融口径重建收入和盈利，不再机械使用经营现金流 FCFF 模型。
 - 前端拆分：已完成第一轮拆分，`frontend/src/main.jsx` 只保留应用状态和页面路由；页面、通用组件、API、格式化工具和数据配置已拆到 `frontend/src/pages/`、`frontend/src/components/`、`frontend/src/api/`、`frontend/src/utils/`、`frontend/src/data/`。
-- 后端拆分：已完成第一轮拆分，`backend/app.py` 只保留应用创建和 router 注册；接口按职责拆到 `backend/routers/`，共享 schema 和依赖放到 `backend/schemas.py`、`backend/dependencies.py`。后续可继续抽离 service 层，把数据库写入和外部数据抓取从 router 中再下沉一层。
-- 数据源健壮性：已完成第一轮增强，补了 `ifrs-full` 标签兜底和针对季度/YTD/20-F/资产负债表项目的单元测试；对于非美元申报公司，当前会明确提示“需要手动汇率转换”，避免静默生成失真估值。后续仍需继续补金融公司、更多 ADR 样本和自动汇率转换。
+- 后端拆分：已完成第一轮拆分，`backend/app.py` 只保留应用创建和 router 注册；接口按职责拆到 `backend/routers/`，共享 schema 和依赖放到 `backend/schemas.py`、`backend/dependencies.py`。估值核心已拆到 `backend/valuation/`，发现池逻辑在 `backend/discovery.py`。后续可继续抽离 service 层，把数据库写入和外部数据抓取从 router 中再下沉一层。
+- 数据源健壮性：已完成多轮增强，补了 `ifrs-full` 标签兜底、季度/YTD/20-F/资产负债表项目测试、资产负债表 `CY2025Q4I` frame 支持、SSL EOF/超时/HTTP 429/5xx 重试和错误分类。对于非美元申报公司，当前会明确提示“需要手动汇率转换”，避免静默生成失真估值。后续仍需继续补更多 ADR 样本和自动汇率转换。
 - 删除策略：已完成第一轮增强，观察池支持“删除观察池”和“彻底删除”两级操作；前者保留笔记和快照，后者连研究笔记与历史快照一起清除，并带双重确认。后续可再补批量清理和快照数量提示。
 - 估值参数模板：已完成前端第一版，支持平台/广告、软件/SaaS、支付、消费品牌、硬件/制造、通用保守模板，并会根据公司画像自动推荐。后续可把模板下沉到后端并允许本地保存自定义模板。
+- QQQ 发现股票：已完成第一版，左侧新增“发现股票”页；默认扫描 QQQ 前 30 大权重公司，按估值置信度优先、低估幅度其次排序，并展示排名原因、护城河、财务质量、行业竞争风险和数据质量。支持刷新并扫描前 30、读取缓存、筛选低估线索/已评估/待补数据、加入观察池、打开公司分析。
 
 ### 中优先级
 
 - 行情源兜底：已完成第一轮增强，支持 `Yahoo chart -> Alpha Vantage` 的股价兜底链路，并可在公司分析页对单个公司手动覆盖价格。后续可继续增加更多免费源和行情时间戳展示。
 - 10 年期美债：已完成第一轮增强，设置中可填 `fred_api_key` 自动拉取 FRED 的 `DGS10`；未配置时继续使用本地默认值。后续可补缓存时间和最近更新时间展示。
 - 快照对比：已完成第一轮增强，历史页支持选择两个快照并排比较合理中枢、当前价和关键估值假设。后续可继续补更多差异字段和图形化展示。
-- 同行比较：已完成第一轮增强，支持批量刷新已选同行、返回同口径估值相对比较，并在同行页展示白话结论、价格/合理中枢、FCF Yield、质量分和隐含增长。后续可继续补更多相对估值指标、行业专属比较口径和图形化展示。
-- 估值体系 V3.0：已完成第一轮升级，后端从单一现金流 DCF 中枢升级为多模型综合区间，包含保守现金流 DCF、Forward P/E、PEG 成长调整、EV/Revenue、EV/EBITDA、FCF Yield；前端默认展示综合合理区间、保守买入区、高风险高估区、模型一致性和普通投资者结论。后续可接入分析师 EPS 共识和历史估值分位，减少高成长公司对本地默认假设的依赖。
-- 错误提示：已完成第一轮增强，前端新增全局 toast，用于添加/刷新/删除/保存/导出等操作的成功和失败提示；顶部状态仍保留为轻量连接状态。
+- 同行比较：已完成增强，支持批量刷新已选同行、返回同口径估值相对比较，并在同行页展示白话结论、价格/合理中枢、FCF Yield、质量分和隐含增长。同行估值快照会写入 `peer_valuation_snapshot`，供后续动态倍数估值使用。后续可继续补更多相对估值指标、行业专属比较口径和图形化展示。
+- 估值体系 V3.0/V4.1：已完成从单一现金流 DCF 中枢到多模型、分层目标价区间的升级，包含 DCF 概率区间、Forward P/E、PEG、EV/Revenue、EV/EBITDA、FCF Yield、Rule of 40 EV/Sales、可选分析师目标价；前端默认展示综合目标价区间、分层权重、模型一致性、普通投资者结论和高级详情。后续可接入真实分析师 EPS 共识和更长历史估值分位。
+- 错误提示：已完成增强，前端新增全局 toast，用于添加/刷新/删除/保存/导出等操作的成功和失败提示；后端会区分网络/SSL 临时故障、数据源返回异常、ticker/ETF 不支持，避免把 SEC/Yahoo 连接问题误报为 ticker 错误。
 
 ### 低优先级
 
 - 增加导出：已完成第一轮增强，估值模型页支持把单家公司估值分析导出为 Markdown。后续可补 PDF 导出和包含研究笔记/快照对比的完整报告。
 - 增加页面内搜索：已完成第一轮增强，研究笔记支持关键词搜索并在预览中高亮；历史快照支持按标题、日期、判断、结论和价格过滤。
-- 增加轻量图表：已完成第一轮增强，刷新公司时会从 SEC companyfacts 保存最近最多 6 年的营收、经营利润、OCF、CAPEX、SBC 历史，公司分析页用原生 SVG 展示核心财务趋势。后续可补 FCF、利润率、同比增长和估值区间图。
+- 增加轻量图表：已完成第一轮增强，刷新公司时会从 SEC companyfacts 保存最近最多 6 年的营收、经营利润、OCF、CAPEX、SBC 历史，公司分析页用原生 SVG 展示核心财务趋势。金融公司会优先保存金融口径收入和盈利历史。后续可补 FCF、利润率、同比增长和估值区间图。
+- 发现池后续增强：当前第一版只默认扫描 QQQ 前 30。后续可补扫描全部成分股、行业分组、历史发现记录、批量导出、护城河自定义打分和外部共识数据导入。
 - 增加深色模式，但不要牺牲阅读舒适度。
 
 ## 数据与估值注意事项
 
 - SEC companyfacts 是免费且可靠的主数据源，但不同公司字段命名不完全一致。
+- Invesco QQQ 官方持仓 API 用于发现池，持仓会变化；发现页展示的是研究线索，不是买卖推荐。
 - ETF、基金、杠杆产品没有公司经营财报，不适用当前公司估值模型。
-- 当前估值内核已调整为 `V3.0 multi-model valuation`：品质分继续动态计算，但合理价值中枢改为多模型综合结果，不再由单一现金流 DCF 决定。
-- V3.0 默认输出三层区间：保守价值区间、市场合理区间、乐观成长区间，并额外给出保守买入区、高风险高估区、模型一致性和白话结论。
-- DCF 在 V3.0 中是保守锚点之一，不等同于最终合理区间。NVDA、PLTR 等高成长公司会默认使用前瞻盈利/收入窗口，并结合 Forward P/E、PEG、EV multiples 来避免单年 FCF 过度压低估值。
-- 免费数据下的 forward EPS 仍是系统估算值，不是分析师共识。后续如接入免费/手动共识 EPS，应优先替换估算值。
-- 当前 DCF 默认假设不能机械套到银行、保险、REIT 或强周期公司。
+- 当前估值内核已调整为 `V3.0/V4.1 layered probability target price calculator`：品质分继续动态计算，但合理价值中枢改为分层目标价，不再由单一现金流 DCF 决定。
+- V4.1 默认输出三层目标价：内在价值层、市场倍数层、可选分析师目标价层。DCF 在结果里是内在价值锚之一，不等同于最终目标价。
+- NVDA、PLTR 等高成长公司会默认使用前瞻盈利/收入窗口，并结合 Forward P/E、PEG、EV multiples 来避免单年 FCF 过度压低估值。
+- 免费数据下的 forward EPS 仍是系统估算值，不是分析师共识；如果用户手动录入本地共识或分析师目标价，应优先替换系统估算值。
+- 金融/放贷类公司不能机械套普通 FCFF DCF。当前已支持第一版金融服务口径：优先使用净利息后收入、税前/净利润和 Forward P/E 主锚；银行、保险、REIT 仍需更专门的估值模型。
+- SOFI 这类 Finance Services 公司此前会因收入字段和 OCF 口径错配导致估值严重失真；当前已修正为金融口径，但仍建议补充真实分析师 EPS 共识和资产质量指标。
+- 发现股票页的护城河、财务质量、行业竞争分是启发式研究排序，不是最终投资结论。它应该帮助决定“先研究谁”，而不是替代完整研究。
 - 估值结果应被视为“假设检查器”，不是目标价承诺。

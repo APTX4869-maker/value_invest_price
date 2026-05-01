@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .db import init_db
 from .routers import (
     companies_router,
+    discovery_router,
     health_router,
     notes_router,
     settings_router,
@@ -32,6 +33,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(watchlist_router)
 app.include_router(companies_router)
+app.include_router(discovery_router)
 app.include_router(valuation_router)
 app.include_router(notes_router)
 app.include_router(settings_router)

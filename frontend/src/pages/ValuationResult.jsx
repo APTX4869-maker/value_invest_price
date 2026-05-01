@@ -33,6 +33,11 @@ function sourceLabel(source) {
     db_consensus: "本地保存的共识",
     system_estimate: "系统估算，非市场共识",
     reported: "真实财报",
+    peer_snapshot: "本地同行快照",
+    default_fallback_adjusted: "系统默认倍数",
+    local_setting_or_fred: "本地利率设置",
+    market_price: "当前市场价格",
+    system_calculated: "系统反推",
   };
   return labels[source] || source || "未注明";
 }
@@ -69,21 +74,52 @@ function TargetRange({ target, current }) {
   );
 }
 
+function layerTitle(key) {
+  const labels = {
+    intrinsic: "内在价值区间",
+    market: "12个月市场目标价",
+    analyst: "外部分析师目标价",
+  };
+  return labels[key] || key;
+}
+
+function layerHelp(key, layer) {
+  if (key === "intrinsic") return `DCF 概率区间，样本 ${layer?.sample_count || 0} 组，取 P10/P50/P90。`;
+  if (key === "market") return "用 Forward P/E、EV/Sales、EV/EBITDA、FCF Yield 等市场口径综合。";
+  if (key === "analyst") return `来自 ${layer?.source || "手动输入"}，只作为一层参考，不覆盖系统模型。`;
+  return "";
+}
+
+function LayerCard({ name, layer, weight }) {
+  if (!layer?.base) return null;
+  return (
+    <div className="valuation-layer-card">
+      <div>
+        <span>{layerTitle(name)}</span>
+        <strong>{formatMoney(layer.base, false)}</strong>
+      </div>
+      <p>{formatMoney(layer.range_low, false)} - {formatMoney(layer.range_high, false)}</p>
+      <small>{layerHelp(name, layer)} 本次综合权重 {formatPercent(weight || 0)}。</small>
+    </div>
+  );
+}
+
 function plainModelText(item) {
   const key = item.model || item.key;
   const base = formatMoney(item.base, false);
   const inputs = item.key_inputs || {};
+  const period = inputs.forward_period === "fy2" ? "后年" : inputs.forward_period === "fy2_proxy" ? "后年近似" : "明年";
   if (key === "forward_pe") {
-    return `盈利法：如果明年每股收益约 ${formatMoney(inputs.forward_eps, false)}，再乘上合理 PE，得到的中间价约 ${base}。`;
+    return `盈利法：如果${period}每股收益约 ${formatMoney(inputs.forward_eps, false)}，再乘上合理 PE，得到的中间价约 ${base}。`;
   }
   if (key === "three_stage_dcf") {
     return `现金流法：把未来能赚到的现金折算回今天，得到的中间价约 ${base}。`;
   }
   if (key === "ev_sales" || key === "rule_of_40_ev_sales") {
-    return `收入法：用类似成长公司的收入倍数做参照，得到的中间价约 ${base}。`;
+    return `收入法：用${period}收入和类似成长公司的收入倍数做参照，得到的中间价约 ${base}。`;
   }
   if (key === "ev_ebitda") {
-    return `经营利润法：用企业价值和 EBITDA 做参照，得到的中间价约 ${base}。`;
+    return `经营利润法：用${period} EBITDA 和企业价值倍数做参照，得到的中间价约 ${base}。`;
   }
   if (key === "fcf_yield") {
     return `现金收益率法：把公司当成一项现金流资产，得到的中间价约 ${base}。`;
@@ -108,6 +144,8 @@ export function ValuationResult({ result }) {
   const reverseMultiples = reverse.multiples || {};
   const dataQuality = result.data_quality || {};
   const forward = result.forward_estimates || {};
+  const valuationLayers = result.valuation_layers || {};
+  const layerWeights = valuationLayers.weights || {};
   const rating = result.rating || result.judgement;
   const topModels = modelRows.filter((item) => item.weight > 0).slice(0, 4);
   const warningCount = (dataQuality.warnings || []).length;
@@ -119,12 +157,12 @@ export function ValuationResult({ result }) {
           <Badge tone={["buy", "accumulate", "有吸引力", "偏便宜"].includes(rating) ? "good" : ["trim", "sell_or_avoid", "偏贵", "高风险高估"].includes(rating) ? "warn" : "neutral"}>
             {ratingLabel(rating)}
           </Badge>
-          <h2>{result.ticker} 的合理价格区间</h2>
+          <h2>{result.ticker} 的综合目标价区间</h2>
           <p className="big-sentence">
-            系统认为比较值得看的区间是 <strong>{formatMoney(target.bear, false)} - {formatMoney(target.bull, false)}</strong>，
+            分层模型给出的 12 个月参考区间是 <strong>{formatMoney(target.bear, false)} - {formatMoney(target.bull, false)}</strong>，
             中间判断约 <strong>{formatMoney(target.base, false)}</strong>。
           </p>
-          <p>{pricePosition(target, result.current_price)}。这不是买卖建议，只是把关键假设算成一个价格区间。</p>
+          <p>{pricePosition(target, result.current_price)}。这不是买卖建议，而是把内在价值、市场倍数和外部目标价拆开后再合成。</p>
         </div>
         <div className="simple-price-card">
           <span>当前价格</span>
@@ -151,6 +189,22 @@ export function ValuationResult({ result }) {
           <Stat label="可信度" value={confidenceText(result.confidence)} hint={confidenceDetail(result.confidence)} />
         </div>
       </div>
+
+      {valuationLayers.intrinsic || valuationLayers.market || valuationLayers.analyst ? (
+        <div className="panel simple-panel">
+          <div className="simple-section-heading">
+            <div>
+              <span className="eyebrow">拆开看</span>
+              <h3>这个区间由三层估值合成</h3>
+            </div>
+          </div>
+          <div className="valuation-layer-grid">
+            <LayerCard name="intrinsic" layer={valuationLayers.intrinsic} weight={layerWeights.intrinsic} />
+            <LayerCard name="market" layer={valuationLayers.market} weight={layerWeights.market} />
+            <LayerCard name="analyst" layer={valuationLayers.analyst} weight={layerWeights.analyst} />
+          </div>
+        </div>
+      ) : null}
 
       <div className="two-column simple-two-column">
         <div className="panel simple-panel">
@@ -202,7 +256,7 @@ export function ValuationResult({ result }) {
       </div>
 
       <details className="formula-box">
-        <summary>高级详情：模型、输入来源、CAPEX 拆分和 DCF 敏感性</summary>
+        <summary>高级详情：模型、输入来源、分层权重、CAPEX 拆分和 DCF 敏感性</summary>
         <div className="model-table">
           <div className="model-table-head">
             <span>模型</span>
@@ -225,7 +279,7 @@ export function ValuationResult({ result }) {
             <Stat key={key} label={`${key} · ${sourceLabel(item.source)}`} value={key.includes("growth") ? formatPercent(item.value) : formatMoney(item.value)} />
           ))}
         </div>
-        <pre>{JSON.stringify({ capex_split: result.capex_split, dcf_sensitivity: result.dcf?.sensitivity, key_risks: result.key_risks }, null, 2)}</pre>
+        <pre>{JSON.stringify({ valuation_layers: result.valuation_layers, model_weighted_aggregate: result.model_weighted_aggregate, capex_split: result.capex_split, dcf_sensitivity: result.dcf?.sensitivity, key_risks: result.key_risks }, null, 2)}</pre>
       </details>
     </>
   );

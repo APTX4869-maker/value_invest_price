@@ -121,3 +121,79 @@ def test_model_weights_renormalize_when_models_have_missing_inputs():
     valid_models = [model for model in result["model_outputs"] if model["base"] > 0 and model["weight"] > 0]
 
     assert sum(model["weight"] for model in valid_models) == pytest.approx(1.0)
+
+
+def test_layered_target_keeps_reverse_dcf_out_of_weighted_models():
+    result = run_target_price_calculator(nvda_facts(130.5e9, 81.5e9, 64.1e9, 3.2e9), ValuationCalculatorRequest(ticker="NVDA"))
+
+    reverse_model = next(model for model in result["model_outputs"] if model["model"] == "reverse_check")
+
+    assert reverse_model["weight"] == 0
+    assert result["valuation_layers"]["intrinsic"]["method"] == "deterministic_monte_carlo_dcf"
+    assert result["valuation_layers"]["weights"]["market"] > result["valuation_layers"]["weights"]["intrinsic"]
+    assert result["target_price"]["base"] > result["valuation_layers"]["intrinsic"]["base"]
+
+
+def test_manual_analyst_target_can_be_blended_as_a_separate_layer():
+    facts = nvda_facts(130.5e9, 81.5e9, 64.1e9, 3.2e9)
+    without_analyst = run_target_price_calculator(facts, ValuationCalculatorRequest(ticker="NVDA"))
+    with_analyst = run_target_price_calculator(
+        facts,
+        ValuationCalculatorRequest(
+            ticker="NVDA",
+            manual_overrides={
+                "analyst_target_low": 240,
+                "analyst_target_median": 280,
+                "analyst_target_high": 330,
+                "analyst_target_source": "test_consensus",
+            },
+        ),
+    )
+
+    assert with_analyst["valuation_layers"]["analyst"]["base"] == 280
+    assert with_analyst["valuation_layers"]["weights"]["analyst"] > 0
+    assert with_analyst["target_price"]["base"] > without_analyst["target_price"]["base"]
+
+
+def test_high_growth_target_uses_two_year_forward_inputs():
+    result = run_target_price_calculator(nvda_facts(130.5e9, 81.5e9, 64.1e9, 3.2e9), ValuationCalculatorRequest(ticker="NVDA"))
+    forward_pe = next(model for model in result["model_outputs"] if model["model"] == "forward_pe")
+    ev_sales = next(model for model in result["model_outputs"] if model["model"] == "ev_sales")
+
+    assert forward_pe["key_inputs"]["forward_period"] == "fy2"
+    assert ev_sales["key_inputs"]["forward_period"] == "fy2"
+
+
+def test_financial_company_uses_earnings_led_market_range():
+    facts = {
+        "ticker": "SOFI",
+        "price": 16.1,
+        "revenue": 3.613354e9,
+        "operating_income": 525.857e6,
+        "ocf": 481.320e6,
+        "capex": 242.444e6,
+        "sbc": 262.058e6,
+        "cash": 2.538293e9,
+        "short_investments": 2.454453e9,
+        "debt_current": 0,
+        "debt_long_term": 3.947983e9,
+        "diluted_shares": 1.251767e9,
+        "ten_year_yield": 0.045,
+        "raw": {
+            "sec_meta": {"sic": "6199", "sic_description": "Finance Services"},
+            "normalization": {
+                "statement_type": "financial_services",
+                "notes": ["金融/放贷类公司使用净利息后收入和净利润近似可分配盈利。"],
+            },
+        },
+    }
+
+    result = run_target_price_calculator(facts, ValuationCalculatorRequest(ticker="SOFI"))
+    models = {model["model"]: model for model in result["model_outputs"]}
+
+    assert result["company_type"] == "financial"
+    assert result["valuation_layers"]["weights"]["intrinsic"] == 0
+    assert models["three_stage_dcf"]["weight"] == 0
+    assert models["fcf_yield"]["weight"] == 0
+    assert models["forward_pe"]["weight"] > models["ev_sales"]["weight"]
+    assert 5 < result["target_price"]["base"] < 15

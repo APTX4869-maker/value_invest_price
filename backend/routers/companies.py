@@ -5,7 +5,13 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from ..company_profiles import build_company_profile
-from ..data_sources import fetch_company_facts, search_tickers
+from ..data_sources import (
+    DataSourceNetworkError,
+    DataSourceResponseError,
+    UnsupportedTickerError,
+    fetch_company_facts,
+    search_tickers,
+)
 from ..db import connect, dumps, now_iso, row_to_dict
 from ..dependencies import get_company_or_404, get_facts_or_404, get_setting, serialize_company
 from ..peer_recommendations import recommend_peers
@@ -50,6 +56,13 @@ def _comparison_row(ticker: str, role: str = "peer") -> dict[str, Any]:
     ratio = _valuation_ratio(result)
     fcf_yield = result.get("yields", {}).get("fcf_yield")
     ocf_yield = result.get("yields", {}).get("ocf_yield")
+    multiples_current = result.get("multiples", {}).get("current", {})
+    quality = result.get("quality_breakdown", {})
+    forward = result.get("forward_estimates", {})
+    revenue_base = facts.get("revenue") or 0
+    revenue_next = (forward.get("revenue_next_year") or {}).get("value") or revenue_base
+    revenue_growth = (revenue_next / revenue_base - 1) if revenue_base else None
+    fcf_margin = ((facts.get("ocf") or 0) - (facts.get("capex") or 0)) / revenue_base if revenue_base else None
     return {
         "ticker": ticker,
         "name": company.get("name", ticker),
@@ -66,11 +79,55 @@ def _comparison_row(ticker: str, role: str = "peer") -> dict[str, Any]:
         "value_gap": ratio - 1 if ratio is not None else None,
         "fcf_yield": fcf_yield,
         "ocf_yield": ocf_yield,
+        "peer_forward_pe": multiples_current.get("forward_pe"),
+        "peer_ev_sales": multiples_current.get("ev_sales"),
+        "peer_ev_ebitda": multiples_current.get("ev_ebitda"),
+        "peer_fcf_yield": multiples_current.get("fcf_yield"),
+        "revenue_growth": revenue_growth,
+        "operating_margin": quality.get("operating_margin"),
+        "fcf_margin": fcf_margin,
+        "rule_of_40": (revenue_growth or 0) + (fcf_margin or 0) if revenue_growth is not None else None,
         "reverse_growth": result.get("reverse_dcf", {}).get("implied_5y_growth"),
         "market_cap": result.get("market_cap"),
         "source": facts.get("source"),
         "updated_at": facts.get("updated_at"),
     }
+
+
+def _save_peer_snapshot(ticker: str, peers: list[dict[str, Any]]) -> None:
+    ready_peers = [item for item in peers if item.get("status") == "ready"]
+    if not ready_peers:
+        return
+    ts = now_iso()
+    with connect() as conn:
+        conn.execute("DELETE FROM peer_valuation_snapshot WHERE ticker = ?", (ticker.upper(),))
+        for peer in ready_peers:
+            conn.execute(
+                """
+                INSERT INTO peer_valuation_snapshot
+                (ticker, peer_ticker, date, peer_price, peer_market_cap, peer_ev_sales,
+                 peer_ev_ebitda, peer_forward_pe, peer_fcf_yield, revenue_growth,
+                 operating_margin, fcf_margin, rule_of_40, source, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ticker.upper(),
+                    peer["ticker"].upper(),
+                    ts,
+                    peer.get("current_price"),
+                    peer.get("market_cap"),
+                    peer.get("peer_ev_sales"),
+                    peer.get("peer_ev_ebitda"),
+                    peer.get("peer_forward_pe"),
+                    peer.get("peer_fcf_yield"),
+                    peer.get("revenue_growth"),
+                    peer.get("operating_margin"),
+                    peer.get("fcf_margin"),
+                    peer.get("rule_of_40"),
+                    "local_peer_compare",
+                    ts,
+                ),
+            )
 
 
 def _peer_summary(current: dict[str, Any], peers: list[dict[str, Any]]) -> dict[str, Any]:
@@ -119,6 +176,31 @@ def _peer_summary(current: dict[str, Any], peers: list[dict[str, Any]]) -> dict[
     }
 
 
+def _unsupported_ticker_help(error: Exception) -> str:
+    return (
+        "刷新失败："
+        f"{error}。请确认输入的是上市公司普通股 ticker，而不是 ETF、基金、权证或拼写错误。"
+        "例如 Palantir Technologies 的 ticker 是 PLTR；PLTA 是跟踪 PLTR 的杠杆 ETF，当前公司估值模型不支持 ETF。"
+    )
+
+
+def _network_help(error: Exception) -> str:
+    return (
+        "刷新失败："
+        f"{error}。这通常是 SEC/Yahoo/FRED 免费数据源或本地网络的临时连接问题，"
+        "不是估值算法错误，也不一定代表 ticker 输错。请稍后重试；如果连续失败，检查网络/代理、SEC User-Agent 设置，"
+        "或在设置中配置 Alpha Vantage 作为行情兜底。"
+    )
+
+
+def _source_response_help(error: Exception) -> str:
+    return (
+        "刷新失败："
+        f"{error}。免费数据源返回了不可用内容。可以稍后重试；如果同一个 ticker 长期失败，"
+        "通常说明 SEC companyfacts 暂无可用公司财务标签，或该标的不适合当前公司估值模型。"
+    )
+
+
 @router.get("/tickers/search")
 def ticker_search(q: str = "", limit: int = 8) -> list[dict[str, str]]:
     user_agent = get_setting("sec_user_agent", "personal-value-study contact@example.com")
@@ -140,29 +222,35 @@ def refresh_company(ticker: str) -> dict[str, Any]:
             alpha_vantage_api_key=alpha_vantage_api_key,
             fred_api_key=fred_api_key,
         )
+    except UnsupportedTickerError as exc:
+        raise HTTPException(status_code=404, detail=_unsupported_ticker_help(exc)) from exc
+    except DataSourceNetworkError as exc:
+        raise HTTPException(status_code=503, detail=_network_help(exc)) from exc
+    except DataSourceResponseError as exc:
+        raise HTTPException(status_code=502, detail=_source_response_help(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"刷新失败：{exc}") from exc
     except Exception as exc:
-        help_text = (
-            "刷新失败："
-            f"{exc}。请确认输入的是上市公司普通股 ticker，而不是 ETF、基金、权证或拼写错误。"
-            "例如 Palantir Technologies 的 ticker 是 PLTR；PLTA 是跟踪 PLTR 的杠杆 ETF，当前公司估值模型不支持 ETF。"
-        )
-        raise HTTPException(status_code=502, detail=help_text) from exc
+        raise HTTPException(status_code=502, detail=_source_response_help(exc)) from exc
 
     ts = now_iso()
     profile = build_company_profile(ticker, fetched.get("name") or ticker, fetched.get("sec_meta", {}))
+    normalization = (fetched.get("raw_json") or {}).get("normalization") or {}
+    profile_company_type = "金融 / 金融科技" if normalization.get("statement_type") == "financial_services" else "稳定复利公司"
     with connect() as conn:
         conn.execute(
             """
             INSERT INTO companies
             (ticker, name, industry, sector, description, business_overview,
              company_type, segments_json, peers_json, profile_source, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, '稳定复利公司', ?, '[]', ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?)
             ON CONFLICT(ticker) DO UPDATE SET
                 name = excluded.name,
                 industry = excluded.industry,
                 sector = excluded.sector,
                 description = excluded.description,
                 business_overview = excluded.business_overview,
+                company_type = excluded.company_type,
                 segments_json = excluded.segments_json,
                 profile_source = excluded.profile_source,
                 updated_at = excluded.updated_at
@@ -174,6 +262,7 @@ def refresh_company(ticker: str) -> dict[str, Any]:
                 profile["sector"],
                 profile["description"],
                 profile["business_overview"],
+                profile_company_type,
                 dumps(profile["segments"]),
                 profile["profile_source"],
                 ts,
@@ -274,6 +363,7 @@ def compare_peers(ticker: str) -> dict[str, Any]:
     company = get_company_or_404(ticker)
     current = _comparison_row(ticker, role="current")
     peers = [_comparison_row(peer, role="peer") for peer in company.get("peers", [])]
+    _save_peer_snapshot(ticker, peers)
     return {
         "ticker": ticker.upper(),
         "current": current,

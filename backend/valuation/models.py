@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from typing import Any, Literal
 
 
@@ -142,6 +143,22 @@ class ModelOutput:
 
 
 def build_facts(facts_dict: dict[str, Any]) -> Facts:
+    raw = facts_dict.get("raw") or facts_dict.get("raw_json") or {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            raw = {}
+    company_profile = dict(facts_dict.get("company_profile") or {})
+    if not company_profile and isinstance(raw, dict):
+        sec_meta = raw.get("sec_meta") or {}
+        sic_description = sec_meta.get("sic_description") or sec_meta.get("sicDescription") or ""
+        company_profile = {
+            "industry": sic_description,
+            "sector": sic_description,
+            "description": raw.get("sec_name") or "",
+            "business_overview": " ".join((raw.get("normalization") or {}).get("notes") or []),
+        }
     return Facts(
         ticker=str(facts_dict["ticker"]).upper(),
         price=float(facts_dict.get("price") or 0),
@@ -158,5 +175,5 @@ def build_facts(facts_dict: dict[str, Any]) -> Facts:
         ten_year_yield=float(facts_dict.get("ten_year_yield") or 0.045),
         fiscal_year=facts_dict.get("fiscal_year"),
         annual_history=list(facts_dict.get("annual_history") or []),
-        company_profile=dict(facts_dict.get("company_profile") or {}),
+        company_profile=company_profile,
     )

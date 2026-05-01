@@ -6,13 +6,14 @@ from .models import Facts, ModelOutput, clamp, safe_div
 
 
 BASE_WEIGHTS: dict[str, dict[str, float]] = {
-    "high_growth_profitable_tech": {"forward_pe": 0.30, "ev_ebitda": 0.25, "three_stage_dcf": 0.25, "peg": 0.10, "fcf_yield": 0.05, "reverse_check": 0.05, "ev_sales": 0.00},
-    "high_growth_software": {"ev_sales": 0.35, "rule_of_40_ev_sales": 0.20, "forward_pe": 0.15, "three_stage_dcf": 0.10, "reverse_check": 0.10, "fcf_yield": 0.05, "peg": 0.05},
-    "platform_compounder": {"three_stage_dcf": 0.30, "forward_pe": 0.25, "ev_ebitda": 0.20, "fcf_yield": 0.15, "reverse_check": 0.05, "peg": 0.05},
-    "mature_compounder": {"fcf_yield": 0.30, "forward_pe": 0.25, "three_stage_dcf": 0.25, "ev_ebitda": 0.15, "reverse_check": 0.05},
-    "consumer_staples": {"fcf_yield": 0.30, "forward_pe": 0.25, "three_stage_dcf": 0.20, "ev_ebitda": 0.15, "reverse_check": 0.05, "dividend_growth": 0.05},
-    "cyclical": {"mid_cycle_earnings": 0.35, "three_stage_dcf": 0.20, "ev_ebitda": 0.20, "fcf_yield": 0.15, "reverse_check": 0.10},
-    "default": {"three_stage_dcf": 0.35, "forward_pe": 0.20, "ev_ebitda": 0.15, "fcf_yield": 0.20, "reverse_check": 0.10},
+    "high_growth_profitable_tech": {"forward_pe": 0.32, "ev_ebitda": 0.26, "three_stage_dcf": 0.18, "peg": 0.12, "ev_sales": 0.07, "fcf_yield": 0.05, "reverse_check": 0.00},
+    "high_growth_software": {"ev_sales": 0.35, "rule_of_40_ev_sales": 0.22, "forward_pe": 0.18, "peg": 0.10, "three_stage_dcf": 0.08, "fcf_yield": 0.04, "ev_ebitda": 0.03, "reverse_check": 0.00},
+    "platform_compounder": {"forward_pe": 0.28, "three_stage_dcf": 0.22, "ev_ebitda": 0.20, "fcf_yield": 0.12, "ev_sales": 0.10, "peg": 0.08, "reverse_check": 0.00},
+    "mature_compounder": {"fcf_yield": 0.32, "forward_pe": 0.28, "three_stage_dcf": 0.25, "ev_ebitda": 0.15, "reverse_check": 0.00},
+    "consumer_staples": {"fcf_yield": 0.32, "forward_pe": 0.28, "three_stage_dcf": 0.20, "ev_ebitda": 0.15, "dividend_growth": 0.05, "reverse_check": 0.00},
+    "cyclical": {"mid_cycle_earnings": 0.40, "ev_ebitda": 0.25, "three_stage_dcf": 0.20, "fcf_yield": 0.15, "reverse_check": 0.00},
+    "financial": {"forward_pe": 0.82, "ev_sales": 0.18, "three_stage_dcf": 0.00, "ev_ebitda": 0.00, "fcf_yield": 0.00, "reverse_check": 0.00},
+    "default": {"three_stage_dcf": 0.30, "forward_pe": 0.25, "fcf_yield": 0.22, "ev_ebitda": 0.18, "ev_sales": 0.05, "reverse_check": 0.00},
 }
 
 
@@ -27,6 +28,52 @@ def normalize_model_weights(models: list[ModelOutput]) -> list[ModelOutput]:
         if model not in valid:
             model.weight = 0.0
     return models
+
+
+def apply_dynamic_model_weights(
+    models: list[ModelOutput],
+    forward: dict[str, Any],
+    multiples: dict[str, Any],
+    dcf: dict[str, Any],
+) -> list[ModelOutput]:
+    """Adjust static model weights for source quality and model fragility."""
+    system_estimates = {
+        key for key, item in forward.items()
+        if isinstance(item, dict) and item.get("source") == "system_estimate"
+    }
+    multiples_sources = multiples.get("sources", {})
+    percentiles = multiples.get("percentiles", {})
+    history_available = any(value != "data_missing" for value in percentiles.values())
+
+    for model in models:
+        if model.model == "reverse_check":
+            model.weight = 0.0
+            continue
+
+        multiplier = 1.0
+        sources = model.data_sources or {}
+        model_forward_keys = {
+            key for key, value in sources.items()
+            if value == "system_estimate" and key.startswith("forward")
+        }
+        if model_forward_keys or any(source == "system_estimate" for source in sources.values()):
+            multiplier *= 0.82
+        if any(source in {"manual_consensus", "db_consensus"} for source in sources.values()):
+            multiplier *= 1.12
+        if model.model in {"forward_pe", "peg"} and {"eps_next_year", "eps_2y", "long_term_eps_growth"} & system_estimates:
+            multiplier *= 0.90
+        if model.model in {"ev_sales", "rule_of_40_ev_sales"} and multiples_sources.get("ev_sales") == "default_fallback_adjusted":
+            multiplier *= 0.88
+        if model.model == "ev_ebitda" and multiples_sources.get("ev_ebitda") == "default_fallback_adjusted":
+            multiplier *= 0.90
+        if history_available and model.model in {"forward_pe", "ev_sales", "ev_ebitda", "fcf_yield"}:
+            multiplier *= 1.08
+        if model.model == "three_stage_dcf" and dcf.get("terminal_dependency", 0) > 0.72:
+            multiplier *= 0.82
+
+        model.weight *= multiplier
+
+    return normalize_model_weights(models)
 
 
 def aggregate_targets(models: list[ModelOutput]) -> dict[str, float]:

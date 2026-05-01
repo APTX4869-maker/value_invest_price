@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import http.client
 import json
-import urllib.parse
+import socket
+import ssl
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any
@@ -15,6 +18,7 @@ SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=1d&interval=1d"
 ALPHA_VANTAGE_QUOTE_URL = "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={ticker}&apikey={api_key}"
 FRED_DGS10_URL = "https://api.stlouisfed.org/fred/series/observations?series_id=DGS10&api_key={api_key}&file_type=json&sort_order=desc&limit=10"
+QQQ_HOLDINGS_URL = "https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/QQQ/holdings/fund?idType=ticker&interval=monthly&productType=ETF&loadType=initial"
 PRIMARY_TAXONOMIES = ("us-gaap", "ifrs-full")
 _ticker_cache: dict[str, Any] = {"loaded_at": 0.0, "items": []}
 COMMON_COMPANY_TICKERS = {
@@ -44,12 +48,92 @@ COMMON_COMPANY_TICKERS = {
     "JPM",
 }
 FUND_NAME_HINTS = ("FUND", "TRUST", "ETF", "INCOME", "MUNICIPAL", "CLOSED-END")
+FINANCIAL_SIC_PREFIXES = ("60", "61", "62", "63", "64", "67")
+TRANSIENT_HTTP_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
-def get_json(url: str, user_agent: str, timeout: int = 20) -> dict[str, Any]:
-    request = urllib.request.Request(url, headers={"User-Agent": user_agent, "Accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+class DataSourceError(RuntimeError):
+    """Base class for upstream data-source failures."""
+
+
+class DataSourceNetworkError(DataSourceError):
+    """Raised when an upstream source cannot be reached reliably."""
+
+
+class DataSourceResponseError(DataSourceError):
+    """Raised when an upstream source responds with unusable data."""
+
+
+class UnsupportedTickerError(ValueError):
+    """Raised when SEC cannot map a ticker to a supported public company."""
+
+
+def _source_name(url: str) -> str:
+    host = urllib.parse.urlparse(url).netloc or "数据源"
+    if "sec.gov" in host:
+        return "SEC 数据源"
+    if "finance.yahoo.com" in host:
+        return "Yahoo 行情源"
+    if "alphavantage.co" in host:
+        return "Alpha Vantage 行情源"
+    if "stlouisfed.org" in host:
+        return "FRED 利率源"
+    return host
+
+
+def _sleep_before_retry(attempt: int) -> None:
+    time.sleep(0.35 * (attempt + 1))
+
+
+def _friendly_error_text(error: Exception) -> str:
+    reason = getattr(error, "reason", None)
+    return str(reason or error)
+
+
+def is_financial_sec_meta(sec_meta: dict[str, Any]) -> bool:
+    sic = str(sec_meta.get("sic") or "")
+    description = str(sec_meta.get("sic_description") or sec_meta.get("sicDescription") or "").lower()
+    return sic.startswith(FINANCIAL_SIC_PREFIXES) or any(
+        word in description
+        for word in ["finance", "financial", "bank", "credit", "lending", "loan", "insurance", "broker", "mortgage"]
+    )
+
+
+def get_json(url: str, user_agent: str, timeout: int = 20, retries: int = 2) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": user_agent,
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+            "Connection": "close",
+        },
+    )
+    source = _source_name(url)
+    attempts = max(1, retries + 1)
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code in TRANSIENT_HTTP_STATUS_CODES and attempt < attempts - 1:
+                _sleep_before_retry(attempt)
+                continue
+            if exc.code in TRANSIENT_HTTP_STATUS_CODES:
+                raise DataSourceNetworkError(f"{source} 暂时不可用（HTTP {exc.code}），系统已自动重试。") from exc
+            raise DataSourceResponseError(f"{source} 返回 HTTP {exc.code}，当前免费接口没有返回可用数据。") from exc
+        except (urllib.error.URLError, TimeoutError, socket.timeout, ssl.SSLError, http.client.HTTPException) as exc:
+            last_error = exc
+            if attempt < attempts - 1:
+                _sleep_before_retry(attempt)
+                continue
+            raise DataSourceNetworkError(f"{source} 连接中断或超时，系统已自动重试：{_friendly_error_text(exc)}") from exc
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise DataSourceResponseError(f"{source} 返回的数据不是有效 JSON。") from exc
+    detail = _friendly_error_text(last_error) if last_error else "未知错误"
+    raise DataSourceNetworkError(f"{source} 连接失败，系统已自动重试：{detail}")
 
 
 def find_cik(ticker: str, user_agent: str) -> tuple[str, str]:
@@ -57,7 +141,7 @@ def find_cik(ticker: str, user_agent: str) -> tuple[str, str]:
     for row in get_ticker_directory(user_agent):
         if row["ticker"] == wanted:
             return row["cik"], row["name"]
-    raise ValueError(f"SEC 没找到 ticker: {ticker}")
+    raise UnsupportedTickerError(f"SEC 没找到 ticker: {ticker}")
 
 
 def get_ticker_directory(user_agent: str) -> list[dict[str, str]]:
@@ -138,7 +222,10 @@ def latest_annual_value(
                     if start:
                         duration_days = (datetime.fromisoformat(end) - datetime.fromisoformat(start)).days
                     annual_duration = is_balance_sheet_item or duration_days >= 330
-                    frame_matches_period = not frame or frame == f"CY{end_year}"
+                    if is_balance_sheet_item:
+                        frame_matches_period = not frame or frame.startswith(f"CY{end_year}")
+                    else:
+                        frame_matches_period = not frame or frame == f"CY{end_year}"
                     is_annual = form in {"10-K", "20-F", "40-F"} and annual_duration and frame_matches_period
                     if not is_annual:
                         continue
@@ -229,7 +316,7 @@ def fetch_price_yahoo(ticker: str, user_agent: str) -> float | None:
         result = data.get("chart", {}).get("result", [{}])[0]
         price = result.get("meta", {}).get("regularMarketPrice")
         return float(price) if price is not None else None
-    except (urllib.error.URLError, KeyError, ValueError, TypeError):
+    except (DataSourceError, urllib.error.URLError, KeyError, ValueError, TypeError):
         return None
 
 
@@ -245,7 +332,7 @@ def fetch_price_alpha_vantage(ticker: str, api_key: str | None, user_agent: str)
         quote = data.get("Global Quote", {})
         price = quote.get("05. price")
         return float(price) if price not in (None, "") else None
-    except (urllib.error.URLError, KeyError, ValueError, TypeError):
+    except (DataSourceError, urllib.error.URLError, KeyError, ValueError, TypeError):
         return None
 
 
@@ -270,9 +357,41 @@ def fetch_ten_year_yield(api_key: str | None, fallback_yield: float, user_agent:
             value = observation.get("value")
             if value and value != ".":
                 return float(value) / 100.0, f"FRED DGS10 ({observation.get('date')})"
-    except (urllib.error.URLError, KeyError, ValueError, TypeError):
+    except (DataSourceError, urllib.error.URLError, KeyError, ValueError, TypeError):
         pass
     return fallback_yield, "本地默认值"
+
+
+def fetch_qqq_holdings(user_agent: str, limit: int | None = None) -> dict[str, Any]:
+    data = get_json(QQQ_HOLDINGS_URL, user_agent)
+    holdings = []
+    for index, item in enumerate(data.get("holdings", []), start=1):
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        security_type = str(item.get("securityTypeName") or "")
+        raw_weight = float(item.get("percentageOfTotalNetAssets") or 0)
+        holdings.append({
+            "rank": index,
+            "ticker": ticker.replace(".", "-"),
+            "name": item.get("issuerName") or ticker,
+            "weight": raw_weight / 100 if raw_weight > 1 else raw_weight,
+            "security_type": security_type,
+            "currency": item.get("currency") or "USD",
+            "raw": item,
+        })
+    holdings.sort(key=lambda row: row["weight"], reverse=True)
+    for index, item in enumerate(holdings, start=1):
+        item["rank"] = index
+    if limit:
+        holdings = holdings[:limit]
+    return {
+        "etf": "QQQ",
+        "as_of": data.get("effectiveBusinessDate") or data.get("effectiveDate"),
+        "total_holdings": int(data.get("totalNumberOfHoldings") or len(holdings)),
+        "source": "Invesco QQQ official holdings API",
+        "holdings": holdings,
+    }
 
 
 def fetch_company_facts(
@@ -285,6 +404,13 @@ def fetch_company_facts(
     cik, name = find_cik(ticker, user_agent)
     facts = get_json(SEC_FACTS_URL.format(cik=cik), user_agent)
     submissions = get_json(SEC_SUBMISSIONS_URL.format(cik=cik), user_agent)
+    sec_meta = {
+        "sic": submissions.get("sic"),
+        "sic_description": submissions.get("sicDescription"),
+        "fiscal_year_end": submissions.get("fiscalYearEnd"),
+        "exchanges": submissions.get("exchanges", []),
+    }
+    is_financial = is_financial_sec_meta(sec_meta)
     fields = {
         "revenue": (["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet", "Revenue"], ["USD"]),
         "operating_income": (["OperatingIncomeLoss", "ProfitLossFromOperatingActivities"], ["USD"]),
@@ -319,16 +445,48 @@ def fetch_company_facts(
             ["shares"],
         ),
     }
+    if is_financial:
+        fields["revenue"] = (
+            [
+                "RevenuesNetOfInterestExpense",
+                "InterestIncomeExpenseNet",
+                "InterestIncomeOperating",
+                "RevenueNotFromContractWithCustomerExcludingInterestIncome",
+                "RevenueFromContractWithCustomerExcludingAssessedTax",
+                "Revenues",
+            ],
+            ["USD"],
+        )
+        fields["operating_income"] = (
+            [
+                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",
+                "NetIncomeLossAvailableToCommonStockholdersDiluted",
+                "NetIncomeLoss",
+            ],
+            ["USD"],
+        )
+        fields["ocf"] = (
+            [
+                "NetIncomeLossAvailableToCommonStockholdersDiluted",
+                "NetIncomeLossAvailableToCommonStockholdersBasic",
+                "NetIncomeLoss",
+            ],
+            ["USD"],
+        )
+        fields["short_investments"] = (
+            [
+                "AvailableForSaleSecuritiesDebtSecurities",
+                "MarketableSecuritiesCurrent",
+                "ShortTermInvestments",
+            ],
+            ["USD"],
+        )
     output: dict[str, Any] = {
         "ticker": ticker.upper(),
         "name": submissions.get("name") or name,
         "cik": cik,
-        "sec_meta": {
-            "sic": submissions.get("sic"),
-            "sic_description": submissions.get("sicDescription"),
-            "fiscal_year_end": submissions.get("fiscalYearEnd"),
-            "exchanges": submissions.get("exchanges", []),
-        },
+        "sec_meta": sec_meta,
     }
     fiscal_years: list[int] = []
     for key, (tags, units) in fields.items():
@@ -362,5 +520,11 @@ def fetch_company_facts(
         "sec_name": output["name"],
         "sec_meta": output["sec_meta"],
         "reporting_currency": reporting_currency or "USD",
+        "normalization": {
+            "statement_type": "financial_services" if is_financial else "operating_company",
+            "notes": [
+                "金融/放贷类公司使用净利息后收入和净利润近似可分配盈利，不使用经营现金流作为 FCF。"
+            ] if is_financial else [],
+        },
     }
     return output

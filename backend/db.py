@@ -163,6 +163,20 @@ def init_db() -> None:
                 outputs_json TEXT,
                 created_at TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS etf_holdings (
+                etf TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                name TEXT DEFAULT '',
+                rank INTEGER,
+                weight REAL,
+                security_type TEXT DEFAULT '',
+                as_of TEXT DEFAULT '',
+                source TEXT DEFAULT '',
+                raw_json TEXT DEFAULT '{}',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (etf, ticker)
+            );
             """
         )
         migrate_db(conn)

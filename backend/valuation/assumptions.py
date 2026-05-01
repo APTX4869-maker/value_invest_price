@@ -90,7 +90,7 @@ def infer_company_type(facts: Facts, company_profile: dict[str, Any] | None = No
     capex_ocf = safe_div(facts.capex, facts.ocf)
     sbc_revenue = safe_div(facts.sbc, facts.revenue)
 
-    if any(word in text for word in ["bank", "insurance", "reIT".lower(), "financial"]):
+    if any(word in text for word in ["bank", "insurance", "reit", "financial", "finance", "lending", "loan", "credit", "broker", "mortgage", "deposit"]):
         return "financial"
     if op_margin < 0 and growth >= 0.12:
         return "unprofitable_growth"
@@ -140,32 +140,63 @@ def resolve_forward_estimates(
     consensus: Any | None = None,
     annual_history: list[dict[str, Any]] | None = None,
     db_consensus: dict[str, Any] | None = None,
+    company_type: CompanyType | None = None,
+    scenarios: dict[str, dict[str, float]] | None = None,
 ) -> ForwardEstimates:
     annual_history = annual_history or facts.annual_history
     ticker_growth = {
-        "NVDA": 0.28,
-        "PLTR": 0.24,
+        "NVDA": 0.34,
+        "PLTR": 0.38,
         "MSFT": 0.12,
         "META": 0.11,
         "GOOG": 0.10,
         "GOOGL": 0.10,
         "AAPL": 0.05,
     }
-    growth = historical_revenue_cagr(annual_history, fallback=ticker_growth.get(facts.ticker.upper(), 0.08))
-    growth = clamp(growth, -0.05, 0.40)
+    type_growth = {
+        "high_growth_profitable_tech": 0.24,
+        "high_growth_software": 0.28,
+        "platform_compounder": 0.10,
+        "mature_compounder": 0.04,
+        "consumer_staples": 0.03,
+        "cyclical": 0.03,
+        "unprofitable_growth": 0.22,
+        "financial": 0.04,
+        "default": 0.07,
+    }
+    fallback_growth = ticker_growth.get(facts.ticker.upper(), type_growth.get(company_type or "default", 0.08))
+    history_growth = historical_revenue_cagr(annual_history, fallback=fallback_growth)
+    base_scenario = (scenarios or {}).get("base", {})
+    five_year_growth = float(base_scenario.get("revenue_cagr_5y", history_growth))
+    growth = clamp(max(history_growth, fallback_growth, five_year_growth), -0.05, 0.45)
+    near_term_lift = {
+        "high_growth_software": 1.45,
+        "high_growth_profitable_tech": 1.30,
+        "unprofitable_growth": 1.35,
+        "platform_compounder": 1.10,
+    }.get(company_type or "default", 1.0)
+    next_growth = clamp(max(growth, five_year_growth * near_term_lift), -0.05, 0.65)
+    year_two_growth = clamp((next_growth + five_year_growth) / 2, -0.05, 0.55)
     margin = clamp(facts.operating_margin, -0.10, 0.65)
+    terminal_margin = float(base_scenario.get("operating_margin_terminal", margin))
+    margin_next = clamp(margin + (terminal_margin - margin) * 0.30, -0.10, 0.70)
+    margin_2y = clamp(margin + (terminal_margin - margin) * 0.50, -0.10, 0.70)
     tax_rate = 0.18
     fcf_margin = clamp(max(facts.fcf_margin, safe_div(facts.ocf, facts.revenue) * 0.65), -0.05, 0.45)
+    terminal_fcf_margin = float(base_scenario.get("fcf_margin_terminal", fcf_margin))
+    fcf_margin_next = clamp(fcf_margin + (terminal_fcf_margin - fcf_margin) * 0.25, -0.05, 0.55)
+    revenue_next = facts.revenue * (1 + next_growth)
+    revenue_2y = revenue_next * (1 + year_two_growth)
 
     system = {
-        "revenue_next_year": facts.revenue * (1 + growth),
-        "revenue_2y": facts.revenue * ((1 + growth) ** 2),
-        "eps_next_year": safe_div(facts.revenue * (1 + growth) * margin * (1 - tax_rate), facts.diluted_shares),
-        "eps_2y": safe_div(facts.revenue * ((1 + growth) ** 2) * margin * (1 - tax_rate), facts.diluted_shares),
-        "ebitda_next_year": facts.revenue * (1 + growth) * min(0.65, max(margin + 0.05, margin)),
-        "operating_income_next_year": facts.revenue * (1 + growth) * margin,
-        "fcf_next_year": facts.revenue * (1 + growth) * fcf_margin,
-        "long_term_eps_growth": max(growth, 0.06),
+        "revenue_next_year": revenue_next,
+        "revenue_2y": revenue_2y,
+        "eps_next_year": safe_div(revenue_next * margin_next * (1 - tax_rate), facts.diluted_shares),
+        "eps_2y": safe_div(revenue_2y * margin_2y * (1 - tax_rate), facts.diluted_shares),
+        "ebitda_next_year": revenue_next * min(0.70, max(margin_next + 0.05, margin_next)),
+        "operating_income_next_year": revenue_next * margin_next,
+        "fcf_next_year": revenue_next * fcf_margin_next,
+        "long_term_eps_growth": max(min((next_growth + year_two_growth) / 2, 0.45), 0.06),
     }
 
     def read_manual(key: str) -> float | None:

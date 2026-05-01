@@ -5,11 +5,12 @@ from typing import Any
 
 from .assumptions import SPECIAL_PROFILES, build_scenarios, infer_company_type, resolve_forward_estimates
 from .capex import split_capex
-from .confidence import BASE_WEIGHTS, aggregate_targets, confidence_score, normalize_model_weights, rating_from_targets
+from .confidence import BASE_WEIGHTS, aggregate_targets, apply_dynamic_model_weights, confidence_score, rating_from_targets
 from .dcf import dcf_sensitivity_table, run_three_stage_dcf
 from .models import Facts, ModelOutput, build_facts, safe_div
 from .multiples import derive_reasonable_multiples
 from .quality import build_data_quality, calculate_quality_score
+from .range_engine import combine_layered_target
 from .reverse import reverse_dcf, reverse_multiples
 
 
@@ -64,6 +65,12 @@ def _price_from_ev(value: float, facts: Facts) -> float:
 
 
 def _weight_reason(model: str, company_type: str, source: str = "") -> str:
+    if company_type == "financial" and model == "forward_pe":
+        suffix = f" 倍数来源：{source}。" if source else ""
+        return "金融/放贷类公司更适合先看盈利能力和 ROE，Forward P/E 是当前版本的主锚。" + suffix
+    if company_type == "financial" and model == "ev_sales":
+        suffix = f" 倍数来源：{source}。" if source else ""
+        return "金融/金融科技公司的 EV/Revenue 只作为收入规模交叉校验，不替代盈利和资产质量分析。" + suffix
     reasons = {
         "three_stage_dcf": "DCF 是该公司类型的内在价值锚，且 CAPEX 已拆分维护性与成长性。",
         "forward_pe": "盈利已经可用时，Forward P/E 更接近市场给 12M 目标价的方式。",
@@ -72,7 +79,7 @@ def _weight_reason(model: str, company_type: str, source: str = "") -> str:
         "rule_of_40_ev_sales": "软件公司需要把收入增长和 FCF margin 放在一起看，Rule of 40 用来调节收入倍数。",
         "peg": "PEG 用 EPS 增速约束高 PE 是否合理。",
         "fcf_yield": "FCF Yield 把公司当成现金流资产，利率越高要求收益率越高。",
-        "reverse_check": "反向估值不直接预测目标价，而是惩罚需要过度乐观假设的价格。",
+        "reverse_check": "反向估值不直接预测目标价，只用于解释当前价格隐含的增长和利润率要求。",
         "mid_cycle_earnings": "周期股使用中周期利润，避免用峰值利润乘高倍数。",
     }
     suffix = f" 倍数来源：{source}。" if source else ""
@@ -89,11 +96,16 @@ def _build_model_outputs(
     reverse: dict[str, Any],
 ) -> list[ModelOutput]:
     weights = BASE_WEIGHTS.get(company_type, BASE_WEIGHTS["default"])
-    eps = (forward["eps_next_year"]["value"] or 0)
+    use_two_year_forward = company_type in {"high_growth_software", "high_growth_profitable_tech", "platform_compounder"}
+    eps_item = forward["eps_2y"] if use_two_year_forward and forward["eps_2y"]["value"] else forward["eps_next_year"]
+    revenue_item = forward["revenue_2y"] if use_two_year_forward and forward["revenue_2y"]["value"] else forward["revenue_next_year"]
+    eps = (eps_item["value"] or 0)
     eps_growth = (forward["long_term_eps_growth"]["value"] or 0)
-    revenue = (forward["revenue_next_year"]["value"] or 0)
-    ebitda = (forward["ebitda_next_year"]["value"] or 0)
-    fcf = (forward["fcf_next_year"]["value"] or 0)
+    revenue = (revenue_item["value"] or 0)
+    revenue_next_year = (forward["revenue_next_year"]["value"] or 0)
+    revenue_scale = safe_div(revenue, revenue_next_year) if use_two_year_forward else 1.0
+    ebitda = (forward["ebitda_next_year"]["value"] or 0) * max(revenue_scale, 0.0)
+    fcf = (forward["fcf_next_year"]["value"] or 0) * max(revenue_scale, 0.0)
     pe = multiples["pe"]
     ev_sales = multiples["ev_sales"]
     ev_ebitda = multiples["ev_ebitda"]
@@ -103,7 +115,7 @@ def _build_model_outputs(
         max(facts.ten_year_yield + 0.020, 0.048),
     )
     peg_pe = tuple(max(8.0, eps_growth * 100 * peg) for peg in (1.0, 1.4, 1.8))
-    reverse_adjust = 0.88 if reverse["difficulty"] == "very_aggressive" else 0.94 if reverse["difficulty"] == "aggressive" else 1.0
+    reverse_adjust = 0.88 if reverse.get("difficulty") == "very_aggressive" else 0.94 if reverse.get("difficulty") == "aggressive" else 1.0
 
     models = [
         ModelOutput(
@@ -125,8 +137,8 @@ def _build_model_outputs(
             eps * pe[1],
             eps * pe[2],
             weights.get("forward_pe", 0),
-            {"forward_eps": eps, "pe_multiples": pe},
-            {"forward_eps": forward["eps_next_year"]["source"], "multiples": multiples["sources"]["pe"]},
+            {"forward_eps": eps, "forward_period": "fy2" if eps_item is forward["eps_2y"] else "fy1", "pe_multiples": pe},
+            {"forward_eps": eps_item["source"], "multiples": multiples["sources"]["pe"]},
             _weight_reason("forward_pe", company_type, multiples["sources"]["pe"]),
         ),
         ModelOutput(
@@ -136,8 +148,8 @@ def _build_model_outputs(
             eps * peg_pe[1],
             eps * peg_pe[2],
             weights.get("peg", 0),
-            {"forward_eps": eps, "long_term_eps_growth": eps_growth, "peg_pe": peg_pe},
-            {"forward_eps": forward["eps_next_year"]["source"], "eps_growth": forward["long_term_eps_growth"]["source"]},
+            {"forward_eps": eps, "forward_period": "fy2" if eps_item is forward["eps_2y"] else "fy1", "long_term_eps_growth": eps_growth, "peg_pe": peg_pe},
+            {"forward_eps": eps_item["source"], "eps_growth": forward["long_term_eps_growth"]["source"]},
             _weight_reason("peg", company_type),
         ),
         ModelOutput(
@@ -147,7 +159,7 @@ def _build_model_outputs(
             _price_from_ev(ebitda * ev_ebitda[1], facts),
             _price_from_ev(ebitda * ev_ebitda[2], facts),
             weights.get("ev_ebitda", 0),
-            {"forward_ebitda": ebitda, "ev_ebitda_multiples": ev_ebitda},
+            {"forward_ebitda": ebitda, "forward_period": "fy2_proxy" if use_two_year_forward else "fy1", "ev_ebitda_multiples": ev_ebitda},
             {"forward_ebitda": forward["ebitda_next_year"]["source"], "multiples": multiples["sources"]["ev_ebitda"]},
             _weight_reason("ev_ebitda", company_type, multiples["sources"]["ev_ebitda"]),
         ),
@@ -158,8 +170,8 @@ def _build_model_outputs(
             _price_from_ev(revenue * ev_sales[1], facts),
             _price_from_ev(revenue * ev_sales[2], facts),
             weights.get("ev_sales", 0),
-            {"forward_revenue": revenue, "ev_sales_multiples": ev_sales},
-            {"forward_revenue": forward["revenue_next_year"]["source"], "multiples": multiples["sources"]["ev_sales"]},
+            {"forward_revenue": revenue, "forward_period": "fy2" if revenue_item is forward["revenue_2y"] else "fy1", "ev_sales_multiples": ev_sales},
+            {"forward_revenue": revenue_item["source"], "multiples": multiples["sources"]["ev_sales"]},
             _weight_reason("ev_sales", company_type, multiples["sources"]["ev_sales"]),
             [multiples["rule_of_40"]["warning"]] if multiples["rule_of_40"].get("warning") else [],
         ),
@@ -170,8 +182,8 @@ def _build_model_outputs(
             _price_from_ev(revenue * ev_sales[1], facts),
             _price_from_ev(revenue * ev_sales[2] * 1.08, facts),
             weights.get("rule_of_40_ev_sales", 0),
-            {"forward_revenue": revenue, "rule_of_40": multiples["rule_of_40"], "ev_sales_multiples": ev_sales},
-            {"forward_revenue": forward["revenue_next_year"]["source"], "multiples": multiples["sources"]["ev_sales"]},
+            {"forward_revenue": revenue, "forward_period": "fy2" if revenue_item is forward["revenue_2y"] else "fy1", "rule_of_40": multiples["rule_of_40"], "ev_sales_multiples": ev_sales},
+            {"forward_revenue": revenue_item["source"], "multiples": multiples["sources"]["ev_sales"]},
             _weight_reason("rule_of_40_ev_sales", company_type, multiples["sources"]["ev_sales"]),
             [multiples["rule_of_40"]["warning"]] if multiples["rule_of_40"].get("warning") else [],
         ),
@@ -211,13 +223,13 @@ def _build_model_outputs(
             dcf_outputs["base"]["per_share"] * reverse_adjust * 0.90,
             dcf_outputs["base"]["per_share"] * reverse_adjust,
             dcf_outputs["base"]["per_share"] * min(1.08, reverse_adjust + 0.08),
-            weights.get("reverse_check", 0),
-            {"difficulty": reverse["difficulty"], "implied_revenue_cagr_5y": reverse["implied_revenue_cagr_5y"]},
+            0.0,
+            {"difficulty": reverse.get("difficulty"), "implied_revenue_cagr_5y": reverse.get("implied_revenue_cagr_5y")},
             {"current_price": "market_price", "reverse_dcf": "system_calculated"},
             _weight_reason("reverse_check", company_type),
         )
     )
-    return normalize_model_weights(models)
+    return models
 
 
 def _target_prices(aggregate: dict[str, float], current_price: float) -> dict[str, float]:
@@ -247,7 +259,7 @@ def run_target_price_calculator(facts_dict: dict[str, Any], request: Any | None 
     company_type = infer_company_type(facts, facts.company_profile, facts.annual_history)
     company_state = SPECIAL_PROFILES.get(facts.ticker, {}).get("company_state", company_type)
     scenarios = build_scenarios(company_type, request, manual_overrides)
-    forward_estimates = resolve_forward_estimates(facts, consensus, facts.annual_history, db_consensus)
+    forward_estimates = resolve_forward_estimates(facts, consensus, facts.annual_history, db_consensus, company_type, scenarios)
     forward = forward_estimates.to_dict()
     capex_split = split_capex(facts, facts.annual_history, company_type, manual_overrides if getattr(request, "use_capex_split", True) else {"maintenance_capex_ratio": 1})
 
@@ -268,8 +280,17 @@ def run_target_price_calculator(facts_dict: dict[str, Any], request: Any | None 
             break
     data_quality = build_data_quality(forward, warnings, facts)
     models = _build_model_outputs(facts, company_type, scenarios, dcf_outputs, forward, multiples, reverse_dcf_output)
+    models = apply_dynamic_model_weights(models, forward, multiples, dcf_outputs["base"])
     aggregate = aggregate_targets(models)
-    target_price = _target_prices(aggregate, facts.price)
+    target_price, valuation_layers = combine_layered_target(
+        facts,
+        company_type,
+        models,
+        scenarios["base"],
+        capex_split,
+        manual_overrides,
+        data_quality,
+    )
     confidence = confidence_score(facts, models, data_quality, dcf_outputs["base"])
     rating = rating_from_targets(target_price["upside_base"], confidence, reverse_dcf_output.get("difficulty", "reasonable"))
     quality_score, quality_breakdown = calculate_quality_score(facts)
@@ -278,7 +299,7 @@ def run_target_price_calculator(facts_dict: dict[str, Any], request: Any | None 
     result = {
         "ticker": facts.ticker,
         "fiscal_year": facts.fiscal_year,
-        "methodology_version": "V3.0/V4.0 target price calculator",
+        "methodology_version": "V3.0/V4.1 layered probability target price calculator",
         "current_price": facts.price,
         "market_cap": facts.market_cap,
         "enterprise_value": facts.enterprise_value,
@@ -306,6 +327,8 @@ def run_target_price_calculator(facts_dict: dict[str, Any], request: Any | None 
             "sensitivity": dcf_sensitivity,
         },
         "multiples": multiples,
+        "valuation_layers": valuation_layers,
+        "model_weighted_aggregate": _target_prices(aggregate, facts.price),
         "model_outputs": model_dicts,
         "reverse_expectations": reverse_expectations,
         "data_quality": data_quality,
@@ -486,6 +509,13 @@ def run_valuation(facts_dict: dict[str, Any], overrides: dict[str, Any] | None =
                 "maintenance_capex_ratio",
                 "peer_snapshot",
                 "multiples_history",
+                "analyst_target",
+                "analyst_price_target",
+                "analyst_target_low",
+                "analyst_target_median",
+                "analyst_target_consensus",
+                "analyst_target_high",
+                "analyst_target_source",
             }
         },
     )

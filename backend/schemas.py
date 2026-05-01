@@ -74,3 +74,9 @@ class PeersRequest(BaseModel):
 
 class PriceOverrideRequest(BaseModel):
     price: float | None = None
+
+
+class DiscoveryScanRequest(BaseModel):
+    limit: int = Field(default=30, ge=1, le=105)
+    refresh_holdings: bool = False
+    refresh_financials: bool = False

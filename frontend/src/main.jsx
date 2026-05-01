@@ -4,6 +4,7 @@ import { api } from "./api/client";
 import { Shell } from "./components/Shell";
 import { ToastStack } from "./components/ToastStack";
 import { CompanyAnalysis } from "./pages/CompanyAnalysis";
+import { DiscoveryPage } from "./pages/DiscoveryPage";
 import { HistorySettings } from "./pages/HistorySettings";
 import { NotesPage } from "./pages/NotesPage";
 import { PeersPage } from "./pages/PeersPage";
@@ -231,6 +232,7 @@ function App() {
     <>
       <Shell page={page} setPage={setPage} ticker={ticker} setTicker={setTicker} status={status}>
         {page === "watchlist" && <Watchlist watchlist={watchlist} setTicker={setTicker} setPage={setPage} addTicker={addTicker} refreshCompany={refreshCompany} deleteTicker={deleteTicker} purgeTicker={(target) => deleteTicker(target, { purge: true })} loading={loading} tickerErrors={tickerErrors} />}
+        {page === "discovery" && <DiscoveryPage setTicker={setTicker} setPage={setPage} addTicker={addTicker} notify={notify} />}
         {page === "company" && <CompanyAnalysis companyData={companyData} refreshCompany={refreshCompany} savePriceOverride={savePriceOverride} />}
         {page === "valuation" && <ValuationModel ticker={normalizedTicker} companyData={companyData} valuationResult={valuationResult} setValuationResult={setValuationResult} saveSnapshot={saveSnapshot} notify={notify} />}
         {page === "peers" && <PeersPage companyData={companyData} updatePeers={updatePeers} peerSuggestions={peerSuggestions} refreshPeerSuggestions={refreshPeerSuggestions} peerComparison={peerComparison} refreshPeerComparison={refreshPeerComparison} />}
