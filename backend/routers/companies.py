@@ -15,6 +15,7 @@ from ..data_sources import (
 from ..db import connect, dumps, now_iso, row_to_dict
 from ..dependencies import get_company_or_404, get_facts_or_404, get_setting, serialize_company
 from ..peer_recommendations import recommend_peers
+from ..sec_filings import get_cached_research_package, list_company_filings, refresh_company_research_package
 from ..schemas import PeersRequest, PriceOverrideRequest
 from ..valuation import run_valuation
 from ..valuation.assumptions import SPECIAL_PROFILES
@@ -348,6 +349,41 @@ def get_company(ticker: str) -> dict[str, Any]:
     except HTTPException:
         pass
     return {"company": company, "facts": facts, "valuation": valuation}
+
+
+@router.get("/company/{ticker}/sec-filings")
+def company_sec_filings(ticker: str, limit: int = 8) -> dict[str, Any]:
+    user_agent = get_setting("sec_user_agent", "personal-value-study contact@example.com")
+    try:
+        return list_company_filings(ticker, user_agent, limit=max(1, min(int(limit), 20)))
+    except UnsupportedTickerError as exc:
+        raise HTTPException(status_code=404, detail=_unsupported_ticker_help(exc)) from exc
+    except DataSourceNetworkError as exc:
+        raise HTTPException(status_code=503, detail=_network_help(exc)) from exc
+    except DataSourceResponseError as exc:
+        raise HTTPException(status_code=502, detail=_source_response_help(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=_source_response_help(exc)) from exc
+
+
+@router.get("/company/{ticker}/research-package")
+def company_research_package(ticker: str) -> dict[str, Any]:
+    return get_cached_research_package(ticker)
+
+
+@router.post("/company/{ticker}/research-package/refresh")
+def refresh_research_package(ticker: str, limit: int = 2) -> dict[str, Any]:
+    user_agent = get_setting("sec_user_agent", "personal-value-study contact@example.com")
+    try:
+        return refresh_company_research_package(ticker, user_agent, filings_limit=max(1, min(int(limit), 4)))
+    except UnsupportedTickerError as exc:
+        raise HTTPException(status_code=404, detail=_unsupported_ticker_help(exc)) from exc
+    except DataSourceNetworkError as exc:
+        raise HTTPException(status_code=503, detail=_network_help(exc)) from exc
+    except DataSourceResponseError as exc:
+        raise HTTPException(status_code=502, detail=_source_response_help(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=_source_response_help(exc)) from exc
 
 
 @router.put("/company/{ticker}/peers")

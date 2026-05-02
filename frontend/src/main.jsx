@@ -21,6 +21,7 @@ function App() {
   const [valuationResult, setValuationResult] = useState(null);
   const [note, setNote] = useState(null);
   const [memo, setMemo] = useState(null);
+  const [secPackage, setSecPackage] = useState(null);
   const [snapshots, setSnapshots] = useState([]);
   const [settings, setSettings] = useState({});
   const [peerSuggestions, setPeerSuggestions] = useState([]);
@@ -46,12 +47,13 @@ function App() {
   async function loadAll(target = normalizedTicker) {
     setLoading(true);
     try {
-      const [watch, queue, company, noteData, memoData, snaps, peerSuggestionData, peerComparisonData, settingData] = await Promise.all([
+      const [watch, queue, company, noteData, memoData, secPackageData, snaps, peerSuggestionData, peerComparisonData, settingData] = await Promise.all([
         api("/api/watchlist"),
         api("/api/research-queue").catch(() => []),
         api(`/api/company/${target}`).catch(() => null),
         api(`/api/notes/${target}`).catch(() => null),
         api(`/api/notes/${target}/memo`).catch(() => null),
+        api(`/api/company/${target}/research-package`).catch(() => null),
         api(`/api/snapshots/${target}`).catch(() => []),
         api(`/api/company/${target}/peer-suggestions`).catch(() => []),
         api(`/api/company/${target}/peers/compare`).catch(() => null),
@@ -62,6 +64,7 @@ function App() {
       setCompanyData(company);
       setNote(noteData);
       setMemo(memoData);
+      setSecPackage(secPackageData);
       setSnapshots(snaps);
       setPeerSuggestions(peerSuggestionData);
       setPeerComparison(peerComparisonData);
@@ -163,6 +166,20 @@ function App() {
       if (!quiet) {
         await loadAll(target);
       }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshSecPackage(target = normalizedTicker) {
+    setLoading(true);
+    try {
+      const result = await api(`/api/company/${target}/research-package/refresh`, { method: "POST" });
+      setSecPackage(result);
+      const found = result.packages?.reduce((sum, item) => sum + (item.quality?.found_count || 0), 0) || 0;
+      notify(`已提取 ${result.packages?.length || 0} 份 SEC 文件，找到 ${found} 个研究章节。`, "success", "SEC 研究包已更新");
+    } catch (error) {
+      notify(error.message, "error", "SEC 研究包刷新失败");
     } finally {
       setLoading(false);
     }
@@ -305,7 +322,7 @@ function App() {
       <Shell page={page} setPage={setPage} ticker={ticker} setTicker={setTicker} status={status}>
         {page === "watchlist" && <Watchlist researchQueue={researchQueue} watchlist={watchlist} setTicker={setTicker} setPage={setPage} addTicker={addTicker} refreshCompany={refreshCompany} updateResearchQueueItem={updateResearchQueueItem} deleteResearchQueueItem={deleteResearchQueueItem} deleteTicker={deleteTicker} purgeTicker={(target) => deleteTicker(target, { purge: true })} loading={loading} tickerErrors={tickerErrors} />}
         {page === "discovery" && <DiscoveryPage setTicker={setTicker} setPage={setPage} addToResearchQueue={addToResearchQueue} notify={notify} />}
-        {page === "company" && <CompanyAnalysis companyData={companyData} queueItem={researchQueue.find((item) => item.ticker === normalizedTicker)} memo={memo} snapshots={snapshots} peerComparison={peerComparison} setPage={setPage} refreshCompany={refreshCompany} savePriceOverride={savePriceOverride} />}
+        {page === "company" && <CompanyAnalysis companyData={companyData} queueItem={researchQueue.find((item) => item.ticker === normalizedTicker)} memo={memo} secPackage={secPackage} snapshots={snapshots} peerComparison={peerComparison} setPage={setPage} refreshCompany={refreshCompany} refreshSecPackage={refreshSecPackage} savePriceOverride={savePriceOverride} />}
         {page === "valuation" && <ValuationModel ticker={normalizedTicker} companyData={companyData} valuationResult={valuationResult} setValuationResult={setValuationResult} saveSnapshot={saveSnapshot} notify={notify} />}
         {page === "peers" && <PeersPage companyData={companyData} updatePeers={updatePeers} peerSuggestions={peerSuggestions} refreshPeerSuggestions={refreshPeerSuggestions} peerComparison={peerComparison} refreshPeerComparison={refreshPeerComparison} />}
         {page === "notes" && <NotesPage ticker={normalizedTicker} note={note} memo={memo} saveNote={saveNote} saveMemo={saveMemo} />}

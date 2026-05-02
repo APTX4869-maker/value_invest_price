@@ -235,6 +235,22 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS sec_filings (
+                ticker TEXT NOT NULL,
+                accession_no TEXT NOT NULL,
+                form TEXT NOT NULL,
+                filing_date TEXT DEFAULT '',
+                report_date TEXT DEFAULT '',
+                primary_document TEXT DEFAULT '',
+                document_url TEXT DEFAULT '',
+                sections_json TEXT DEFAULT '[]',
+                source TEXT DEFAULT '',
+                fetched_at TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (ticker, accession_no)
+            );
             """
         )
         migrate_db(conn)

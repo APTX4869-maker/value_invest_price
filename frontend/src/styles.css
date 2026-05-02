@@ -312,6 +312,20 @@ h3 {
   color: var(--muted);
 }
 
+.text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green);
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.text-link:hover {
+  text-decoration: underline;
+}
+
 .info-tip {
   position: relative;
   display: inline-flex;
@@ -1925,6 +1939,70 @@ pre {
   margin: 0;
 }
 
+.sec-evidence-layout,
+.sec-package-list {
+  display: grid;
+  gap: 16px;
+}
+
+.sec-evidence-intro {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  background: #f8fbf5;
+}
+
+.sec-evidence-intro > svg {
+  color: var(--green);
+}
+
+.sec-evidence-intro p {
+  margin: 0;
+}
+
+.sec-package {
+  display: grid;
+  gap: 16px;
+}
+
+.sec-package .panel-heading p {
+  margin: 4px 0 0;
+}
+
+.sec-section-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.sec-section {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffef9;
+  padding: 14px;
+}
+
+.sec-section summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.sec-section p {
+  margin: 12px 0 8px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.sec-section small {
+  color: var(--green);
+  line-height: 1.4;
+}
+
 .memo-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(330px, 0.38fr);
@@ -2136,6 +2214,7 @@ pre {
   .dossier-onepager,
   .dossier-card-grid,
   .dossier-action-panel,
+  .sec-evidence-intro,
   .memo-layout,
   .memo-form,
   .decision-panel,

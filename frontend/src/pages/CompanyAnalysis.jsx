@@ -1,4 +1,4 @@
-import { ArrowRight, BarChart3, FileClock, NotebookPen, RefreshCcw, Save, ShieldCheck, SlidersHorizontal, Undo2 } from "lucide-react";
+import { ArrowRight, BarChart3, ExternalLink, FileClock, FileSearch, NotebookPen, RefreshCcw, Save, ShieldCheck, SlidersHorizontal, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge } from "../components/Badge";
 import { EmptyState } from "../components/EmptyState";
@@ -12,6 +12,7 @@ const TABS = [
   { id: "overview", label: "概览" },
   { id: "business", label: "业务与护城河" },
   { id: "financials", label: "财务质量" },
+  { id: "sec", label: "SEC 证据" },
   { id: "valuation", label: "估值" },
   { id: "peers", label: "同行比较" },
   { id: "memo", label: "投资备忘录" },
@@ -38,7 +39,7 @@ function DossierCard({ title, children }) {
   );
 }
 
-export function CompanyAnalysis({ companyData, queueItem, memo, snapshots = [], peerComparison, setPage, refreshCompany, savePriceOverride }) {
+export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, snapshots = [], peerComparison, setPage, refreshCompany, refreshSecPackage, savePriceOverride }) {
   const [priceDraft, setPriceDraft] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const company = companyData?.company;
@@ -56,6 +57,7 @@ export function CompanyAnalysis({ companyData, queueItem, memo, snapshots = [], 
   const segments = company.segments || [];
   const watchPoints = valuation?.plain_language?.watch || valuation?.data_quality?.warnings || [];
   const memoConclusion = memo?.conclusion || "不确定";
+  const secPackages = secPackage?.packages || [];
 
   return (
     <section className="page-section dossier-page">
@@ -211,6 +213,64 @@ export function CompanyAnalysis({ companyData, queueItem, memo, snapshots = [], 
             <TrendChart data={facts?.annual_history || []} />
           </div>
         </>
+      ) : null}
+
+      {activeTab === "sec" ? (
+        <div className="sec-evidence-layout">
+          <div className="panel sec-evidence-intro">
+            <FileSearch size={28} />
+            <div>
+              <h3>SEC 研究证据</h3>
+              <p>
+                从最新 10-K / 10-Q 里提取 Business、Risk Factors、MD&A 等章节。这里是后续 LLM 初稿的证据底座，任何结论都应该能回到 filing 来源。
+              </p>
+            </div>
+            <button onClick={() => refreshSecPackage(company.ticker)}><RefreshCcw size={16} />刷新 SEC 研究包</button>
+          </div>
+
+          {secPackages.length ? (
+            <div className="sec-package-list">
+              {secPackages.map((packageItem) => (
+                <article className="panel sec-package" key={packageItem.filing.accession_no}>
+                  <div className="panel-heading">
+                    <div>
+                      <h3>{packageItem.filing.form} · {packageItem.filing.filing_date || packageItem.filing.report_date}</h3>
+                      <p className="muted">Accession {packageItem.filing.accession_no}</p>
+                    </div>
+                    <a className="text-link" href={packageItem.filing.document_url} target="_blank" rel="noreferrer">
+                      <ExternalLink size={15} />SEC 原文
+                    </a>
+                  </div>
+                  <div className="mini-stats">
+                    <Stat label="已提取章节" value={`${packageItem.quality?.found_count || 0}/${packageItem.quality?.total || 0}`} />
+                    <Stat label="文档类型" value={packageItem.filing.form} />
+                    <Stat label="提取时间" value={packageItem.fetched_at ? packageItem.fetched_at.slice(0, 10) : "-"} />
+                  </div>
+                  <div className="sec-section-grid">
+                    {(packageItem.sections || []).map((section) => (
+                      <details className="sec-section" key={`${packageItem.filing.accession_no}-${section.key}`} open={section.status === "found"}>
+                        <summary>
+                          <span>{section.title}</span>
+                          <Badge tone={section.status === "found" ? "good" : "neutral"}>{section.status === "found" ? `${section.word_count} words` : "未提取"}</Badge>
+                        </summary>
+                        {section.status === "found" ? (
+                          <>
+                            <p>{section.excerpt}</p>
+                            <small>{section.citation}</small>
+                          </>
+                        ) : (
+                          <p className="plain-callout">这个章节没有在当前 filing 中稳定识别出来，建议打开 SEC 原文人工确认。</p>
+                        )}
+                      </details>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="还没有 SEC 研究包" text="点击刷新 SEC 研究包后，系统会抓取最近 10-K / 10-Q 并抽取关键章节。" />
+          )}
+        </div>
       ) : null}
 
       {activeTab === "valuation" ? (
