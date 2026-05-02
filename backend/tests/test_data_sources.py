@@ -11,6 +11,7 @@ from backend.data_sources import (
     fetch_company_facts,
     fetch_price,
     fetch_qqq_holdings,
+    fetch_sp500_holdings,
     fetch_ten_year_yield,
     get_json,
     latest_annual_value,
@@ -84,6 +85,24 @@ def test_fetch_qqq_holdings_normalizes_official_weights(monkeypatch):
     assert payload["holdings"][0]["ticker"] == "NVDA"
     assert payload["holdings"][0]["weight"] == 0.0904
     assert payload["source"] == "Invesco QQQ official holdings API"
+
+
+def test_fetch_sp500_holdings_parses_slickcharts_table(monkeypatch):
+    html = """
+    <table>
+      <tr><th>#</th><th>Company</th><th>Symbol</th><th>Weight</th></tr>
+      <tr><td>1</td><td>NVIDIA Corp</td><td>NVDA</td><td>7.10%</td></tr>
+      <tr><td>2</td><td>Apple Inc</td><td>AAPL</td><td>6.20%</td></tr>
+    </table>
+    """
+    monkeypatch.setattr("backend.data_sources.get_text", lambda url, user_agent: html)
+
+    payload = fetch_sp500_holdings("ua")
+
+    assert payload["pool_id"] == "sp500"
+    assert payload["holdings"][0]["ticker"] == "NVDA"
+    assert payload["holdings"][0]["weight"] == 0.071
+    assert payload["source"] == "Slickcharts S&P 500 companies by weight"
 
 
 def test_latest_annual_value_ignores_quarterly_ytd_and_prefers_annual():

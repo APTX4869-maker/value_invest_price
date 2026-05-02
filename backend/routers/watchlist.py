@@ -18,11 +18,13 @@ def _delete_company_records(ticker: str, purge: bool = False) -> dict[str, Any]:
     with connect() as conn:
         row = conn.execute("SELECT ticker FROM companies WHERE ticker = ?", (ticker,)).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="观察池里没有这个 ticker")
+            raise HTTPException(status_code=404, detail="研究队列里没有这个 ticker")
         conn.execute("DELETE FROM companies WHERE ticker = ?", (ticker,))
         conn.execute("DELETE FROM financial_facts WHERE ticker = ?", (ticker,))
+        conn.execute("DELETE FROM research_queue WHERE ticker = ?", (ticker,))
         if purge:
             conn.execute("DELETE FROM notes WHERE ticker = ?", (ticker,))
+            conn.execute("DELETE FROM investment_memos WHERE ticker = ?", (ticker,))
             conn.execute("DELETE FROM valuation_snapshots WHERE ticker = ?", (ticker,))
             conn.execute("DELETE FROM consensus_estimates WHERE ticker = ?", (ticker,))
             conn.execute("DELETE FROM valuation_multiples_history WHERE ticker = ?", (ticker,))
@@ -39,7 +41,7 @@ def _delete_company_records(ticker: str, purge: bool = False) -> dict[str, Any]:
         "ticker": ticker,
         "deleted": True,
         "purged": False,
-        "message": "已从观察池移除，并清除本地财务缓存；研究笔记和历史快照仍保留。",
+        "message": "已从研究队列移除，并清除本地财务缓存；研究笔记和历史快照仍保留。",
     }
 
 
@@ -87,6 +89,21 @@ def add_company(payload: AddCompanyRequest) -> dict[str, Any]:
             VALUES (?, ?, '', '', '', '', '稳定复利公司', '[]', '[]', '', ?, ?)
             """,
             (ticker, payload.name or ticker, ts, ts),
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO research_queue
+            (ticker, status, tags_json, next_action, entry_reason, source, priority_score,
+             discovery_label, ignored, created_at, updated_at)
+            VALUES (?, 'candidate', '[]', ?, ?, 'manual_add', NULL, '手动添加', 0, ?, ?)
+            """,
+            (
+                ticker,
+                "刷新财务数据，确认这家公司是否值得进入初筛。",
+                "手动加入研究队列。",
+                ts,
+                ts,
+            ),
         )
         row = conn.execute("SELECT * FROM companies WHERE ticker = ?", (ticker,)).fetchone()
     return serialize_company(dict(row))

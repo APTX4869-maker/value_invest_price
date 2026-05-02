@@ -77,6 +77,47 @@ class PriceOverrideRequest(BaseModel):
 
 
 class DiscoveryScanRequest(BaseModel):
-    limit: int = Field(default=30, ge=1, le=105)
+    pool_id: str = "sp500"
+    limit: int = Field(default=50, ge=1, le=520)
     refresh_holdings: bool = False
     refresh_financials: bool = False
+
+
+class StockPoolMembersRequest(BaseModel):
+    name: str | None = None
+    tickers: list[str] = Field(default_factory=list)
+
+
+class ResearchQueueRequest(BaseModel):
+    ticker: str = Field(min_length=1, max_length=12)
+    name: str | None = None
+    status: str = "candidate"
+    tags: list[str] = Field(default_factory=list)
+    next_action: str = ""
+    entry_reason: str = ""
+    source: str = "manual"
+    priority_score: float | None = None
+    discovery_label: str = ""
+
+
+class ResearchQueuePatchRequest(BaseModel):
+    status: str | None = None
+    tags: list[str] | None = None
+    next_action: str | None = None
+    entry_reason: str | None = None
+    priority_score: float | None = None
+    discovery_label: str | None = None
+    ignored: bool | None = None
+
+
+class InvestmentMemoRequest(BaseModel):
+    conclusion: str = "不确定"
+    attention_reason: str = ""
+    thesis: list[str] = Field(default_factory=list)
+    business_moat: str = ""
+    financial_quality: str = ""
+    valuation_view: str = ""
+    bear_case: str = ""
+    review_triggers: list[str] = Field(default_factory=list)
+    free_notes: str = ""
+    snapshot_id: int | None = None

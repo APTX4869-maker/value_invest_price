@@ -30,7 +30,8 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -190,7 +191,8 @@ button.ghost-danger {
 }
 
 input,
-textarea {
+textarea,
+select {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fffef9;
@@ -200,7 +202,8 @@ textarea {
 }
 
 input:focus,
-textarea:focus {
+textarea:focus,
+select:focus {
   border-color: var(--teal);
   box-shadow: 0 0 0 3px rgba(31, 122, 122, 0.12);
 }
@@ -1567,6 +1570,60 @@ pre {
   justify-content: flex-end;
 }
 
+.radar-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.24fr) auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: end;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.9);
+  padding: 14px 16px;
+}
+
+.radar-controls label,
+.radar-controls > div {
+  display: grid;
+  gap: 7px;
+}
+
+.radar-controls span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.radar-controls p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.custom-pool-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.9);
+  padding: 14px 16px;
+}
+
+.custom-pool-editor label {
+  display: grid;
+  gap: 7px;
+}
+
+.custom-pool-editor label span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.custom-pool-editor textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
 .discovery-table {
   min-width: 1320px;
 }
@@ -1657,6 +1714,287 @@ pre {
   height: 34px;
   justify-content: center;
   padding: 0;
+}
+
+.queue-filter {
+  width: max-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
+.queue-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(260px, 1fr));
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.queue-column {
+  min-width: 260px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.78);
+}
+
+.queue-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #f7f5ed;
+}
+
+.queue-column-head span {
+  min-width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--green);
+  font-weight: 700;
+}
+
+.queue-column-body {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.queue-card {
+  display: grid;
+  gap: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffef9;
+  box-shadow: 0 10px 28px rgba(40, 53, 48, 0.08);
+  padding: 15px;
+}
+
+.queue-card h3 {
+  font-size: 24px;
+  margin-bottom: 3px;
+}
+
+.queue-card .mini-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.queue-card .stat {
+  min-height: 70px;
+  padding: 10px;
+}
+
+.queue-card .stat strong {
+  font-size: 16px;
+}
+
+.queue-tags,
+.queue-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.queue-next {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.queue-next strong {
+  color: var(--green);
+}
+
+.queue-next span {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.queue-edit-row label {
+  flex: 1;
+  min-width: 150px;
+  display: grid;
+  gap: 6px;
+}
+
+.queue-edit-row label span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.queue-table {
+  min-width: 1040px;
+}
+
+.queue-table select {
+  min-width: 150px;
+}
+
+.table-muted {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.empty-column {
+  margin: 0;
+  padding: 14px;
+  text-align: center;
+}
+
+.dossier-onepager {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(420px, 1.1fr);
+  gap: 20px;
+  align-items: center;
+  background: #f8fbf5;
+}
+
+.dossier-onepager h3 {
+  font-size: 34px;
+  margin-bottom: 8px;
+}
+
+.dossier-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffef9;
+  padding: 6px;
+}
+
+.dossier-tabs button {
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  padding: 9px 11px;
+}
+
+.dossier-tabs button:hover,
+.dossier-tabs button.active {
+  background: var(--soft);
+  color: var(--green);
+  transform: none;
+  box-shadow: none;
+}
+
+.dossier-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.dossier-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffef9;
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.dossier-card strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--green);
+}
+
+.dossier-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.dossier-action-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+}
+
+.dossier-action-panel > svg {
+  color: var(--green);
+}
+
+.dossier-action-panel p {
+  margin: 0;
+}
+
+.memo-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 0.38fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.memo-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.memo-field {
+  display: grid;
+  gap: 8px;
+}
+
+.memo-field.full {
+  grid-column: 1 / -1;
+}
+
+.memo-field span,
+.memo-field-head span {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.memo-field textarea {
+  min-height: 120px;
+  resize: vertical;
+  line-height: 1.65;
+}
+
+.memo-field-head,
+.memo-list-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.memo-field-head {
+  justify-content: space-between;
+}
+
+.memo-list-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.memo-list-row input {
+  flex: 1;
+}
+
+.memo-preview {
+  position: sticky;
+  top: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.memo-preview section {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.memo-preview p,
+.memo-preview li {
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .current-peer-row td {
@@ -1793,6 +2131,13 @@ pre {
   .target-summary,
   .simple-valuation-hero,
   .two-column,
+  .radar-controls,
+  .custom-pool-editor,
+  .dossier-onepager,
+  .dossier-card-grid,
+  .dossier-action-panel,
+  .memo-layout,
+  .memo-form,
   .decision-panel,
   .simple-section-heading,
   .model-table-head,

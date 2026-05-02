@@ -177,6 +177,64 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (etf, ticker)
             );
+
+            CREATE TABLE IF NOT EXISTS stock_pools (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                kind TEXT DEFAULT 'index',
+                description TEXT DEFAULT '',
+                default_limit INTEGER DEFAULT 50,
+                source TEXT DEFAULT '',
+                as_of TEXT DEFAULT '',
+                meta_json TEXT DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS stock_pool_members (
+                pool_id TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                name TEXT DEFAULT '',
+                rank INTEGER,
+                weight REAL,
+                sector TEXT DEFAULT '',
+                industry TEXT DEFAULT '',
+                security_type TEXT DEFAULT '',
+                source TEXT DEFAULT '',
+                raw_json TEXT DEFAULT '{}',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (pool_id, ticker)
+            );
+
+            CREATE TABLE IF NOT EXISTS research_queue (
+                ticker TEXT PRIMARY KEY,
+                status TEXT NOT NULL DEFAULT 'candidate',
+                tags_json TEXT DEFAULT '[]',
+                next_action TEXT DEFAULT '',
+                entry_reason TEXT DEFAULT '',
+                source TEXT DEFAULT '',
+                priority_score REAL,
+                discovery_label TEXT DEFAULT '',
+                ignored INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS investment_memos (
+                ticker TEXT PRIMARY KEY,
+                conclusion TEXT DEFAULT '不确定',
+                attention_reason TEXT DEFAULT '',
+                thesis_json TEXT DEFAULT '[]',
+                business_moat TEXT DEFAULT '',
+                financial_quality TEXT DEFAULT '',
+                valuation_view TEXT DEFAULT '',
+                bear_case TEXT DEFAULT '',
+                review_triggers_json TEXT DEFAULT '[]',
+                free_notes TEXT DEFAULT '',
+                snapshot_id INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         migrate_db(conn)
@@ -206,6 +264,15 @@ def migrate_db(conn: sqlite3.Connection) -> None:
         if name not in facts_columns:
             conn.execute(f"ALTER TABLE financial_facts ADD COLUMN {name} {definition}")
 
+    queue_columns = {row["name"] for row in conn.execute("PRAGMA table_info(research_queue)").fetchall()}
+    queue_additions = {
+        "ignored": "INTEGER DEFAULT 0",
+        "discovery_label": "TEXT DEFAULT ''",
+    }
+    for name, definition in queue_additions.items():
+        if name not in queue_columns:
+            conn.execute(f"ALTER TABLE research_queue ADD COLUMN {name} {definition}")
+
 
 def seed_defaults(conn: sqlite3.Connection) -> None:
     ts = now_iso()
@@ -217,6 +284,14 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
         "default_risk_discount": 0.03,
         "alpha_vantage_api_key": "",
         "fred_api_key": "",
+        "default_discovery_pool": "sp500",
+        "llm_enabled": False,
+        "llm_provider_type": "openai_compatible",
+        "llm_base_url": "https://api.openai.com/v1",
+        "llm_api_key": "",
+        "llm_model": "",
+        "llm_max_tokens": 4000,
+        "llm_temperature": 0.2,
     }
     for key, value in defaults.items():
         conn.execute(
@@ -332,6 +407,41 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
             ]),
         ),
     )
+    stock_pools = [
+        (
+            "sp500",
+            "S&P 500",
+            "index",
+            "默认大盘发现池，用于从更广的美股大盘公司里寻找研究线索。",
+            50,
+            "Slickcharts/Wikipedia 免费成分股源，可后续用手动 CSV 覆盖。",
+        ),
+        (
+            "qqq",
+            "QQQ",
+            "etf",
+            "科技成长子池，保留原 QQQ 发现能力，适合快速看纳指权重公司。",
+            30,
+            "Invesco QQQ official holdings API",
+        ),
+        (
+            "custom",
+            "自定义池",
+            "custom",
+            "用户手动维护的研究主题池。",
+            50,
+            "manual",
+        ),
+    ]
+    for pool in stock_pools:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO stock_pools
+            (id, name, kind, description, default_limit, source, as_of, meta_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, '', '{}', ?, ?)
+            """,
+            (*pool, ts, ts),
+        )
     conn.execute(
         """
         INSERT OR IGNORE INTO notes (ticker, content, updated_at)
@@ -342,6 +452,49 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
             "## 我为什么看这家公司？\n\n- 搜索、YouTube、Android、Cloud 和 AI 基础设施形成强平台。\n\n"
             "## 当前价格在赌什么？\n\n- 市场相信 AI / 数据中心 CAPEX 未来能转化为更高 OCF。\n\n"
             "## 我最可能错在哪里？\n\n- 把防守性 CAPEX 当成高回报成长投资。",
+            ts,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO research_queue
+        (ticker, status, tags_json, next_action, entry_reason, source, priority_score,
+         discovery_label, ignored, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        """,
+        (
+            "GOOG",
+            "deep_research",
+            dumps(["平台", "AI", "云计算", "重点跟踪"]),
+            "复核 AI CAPEX 是否能转化为未来 OCF，并在 memo 里写清楚反证条件。",
+            "内置示例公司，用来展示从公司档案到结构化 memo 的研究流程。",
+            "seed",
+            80,
+            "示例研究",
+            ts,
+            ts,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO investment_memos
+        (ticker, conclusion, attention_reason, thesis_json, business_moat,
+         financial_quality, valuation_view, bear_case, review_triggers_json,
+         free_notes, snapshot_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+        """,
+        (
+            "GOOG",
+            "不确定",
+            "示例：平台资产强，但需要持续验证 AI 资本开支回报率。",
+            dumps(["搜索和 YouTube 仍是高质量现金流底盘。", "Cloud 利润率改善能支撑第二增长曲线。"]),
+            "生态、数据、分发和算力投入构成护城河，但 AI 入口变化需要持续跟踪。",
+            "现金流质量较强，CAPEX 上行是当前最关键的财务观察点。",
+            "估值应重点看当前价格隐含的 Cloud/AI 成长与 CAPEX 回报假设。",
+            "如果搜索入口被改写、Cloud 增长放缓或 CAPEX 长期不能转化为 OCF，原判断需要下修。",
+            dumps(["季度 OCF 与 CAPEX 背离扩大", "Cloud 利润率连续两个季度恶化", "监管导致默认搜索分发受损"]),
+            "",
+            ts,
             ts,
         ),
     )

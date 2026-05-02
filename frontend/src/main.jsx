@@ -13,12 +13,14 @@ import { Watchlist } from "./pages/Watchlist";
 import "./styles.css";
 
 function App() {
-  const [page, setPage] = useState("watchlist");
+  const [page, setPage] = useState("discovery");
   const [ticker, setTicker] = useState("GOOG");
   const [watchlist, setWatchlist] = useState([]);
+  const [researchQueue, setResearchQueue] = useState([]);
   const [companyData, setCompanyData] = useState(null);
   const [valuationResult, setValuationResult] = useState(null);
   const [note, setNote] = useState(null);
+  const [memo, setMemo] = useState(null);
   const [snapshots, setSnapshots] = useState([]);
   const [settings, setSettings] = useState({});
   const [peerSuggestions, setPeerSuggestions] = useState([]);
@@ -44,18 +46,22 @@ function App() {
   async function loadAll(target = normalizedTicker) {
     setLoading(true);
     try {
-      const [watch, company, noteData, snaps, peerSuggestionData, peerComparisonData, settingData] = await Promise.all([
+      const [watch, queue, company, noteData, memoData, snaps, peerSuggestionData, peerComparisonData, settingData] = await Promise.all([
         api("/api/watchlist"),
+        api("/api/research-queue").catch(() => []),
         api(`/api/company/${target}`).catch(() => null),
         api(`/api/notes/${target}`).catch(() => null),
+        api(`/api/notes/${target}/memo`).catch(() => null),
         api(`/api/snapshots/${target}`).catch(() => []),
         api(`/api/company/${target}/peer-suggestions`).catch(() => []),
         api(`/api/company/${target}/peers/compare`).catch(() => null),
         api("/api/settings").catch(() => ({})),
       ]);
       setWatchlist(watch);
+      setResearchQueue(queue);
       setCompanyData(company);
       setNote(noteData);
+      setMemo(memoData);
       setSnapshots(snaps);
       setPeerSuggestions(peerSuggestionData);
       setPeerComparison(peerComparisonData);
@@ -80,11 +86,64 @@ function App() {
       setTicker(target);
       await loadAll(target);
       await refreshCompany(target, true);
-      notify(`${target} 已加入观察池。`, "success", "添加成功");
+      notify(`${target} 已加入研究队列。`, "success", "添加成功");
       return true;
     } catch (error) {
       notify(error.message, "error", `${target} 添加失败`);
       return false;
+    }
+  }
+
+  async function addToResearchQueue(row, options = {}) {
+    const target = row.ticker.toUpperCase();
+    try {
+      await api("/api/research-queue", {
+        method: "POST",
+        body: JSON.stringify({
+          ticker: target,
+          name: row.name || target,
+          status: options.status || "candidate",
+          tags: row.label ? [row.label] : [],
+          next_action: row.status === "ready" ? "打开公司档案，补业务、护城河、财务质量和反证清单。" : "先刷新财务数据，再判断是否进入初筛。",
+          entry_reason: row.summary || row.entry_reason || "从发现雷达加入研究队列。",
+          source: row.pool_id ? `discovery:${row.pool_id}` : "discovery",
+          priority_score: row.rank_score ?? row.priority_score ?? null,
+          discovery_label: row.label || "",
+        }),
+      });
+      setTicker(target);
+      await loadAll(target);
+      notify(`${target} 已加入研究队列。`, "success", "已入队");
+      if (options.open) setPage("company");
+      return true;
+    } catch (error) {
+      notify(error.message, "error", `${target} 入队失败`);
+      return false;
+    }
+  }
+
+  async function updateResearchQueueItem(target, patch) {
+    try {
+      await api(`/api/research-queue/${target}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      await loadAll(normalizedTicker);
+      notify(`${target} 研究状态已更新。`, "success", "队列已更新");
+    } catch (error) {
+      notify(error.message, "error", "队列更新失败");
+    }
+  }
+
+  async function deleteResearchQueueItem(target) {
+    const ok = window.confirm(`确定要把 ${target} 移出研究队列吗？公司资料、笔记和快照会保留。`);
+    if (!ok) return;
+    try {
+      await api(`/api/research-queue/${target}`, { method: "DELETE" });
+      await loadAll(normalizedTicker);
+      notify(`${target} 已移出研究队列。`, "success", "已移出");
+    } catch (error) {
+      notify(error.message, "error", "移出失败");
     }
   }
 
@@ -112,8 +171,8 @@ function App() {
   async function deleteTicker(target, options = {}) {
     const purge = options.purge === true;
     const message = purge
-      ? `确定要彻底删除 ${target} 吗？\n\n这会移除观察池条目、本地财务缓存、研究笔记和历史快照。这个操作主要用于清理输错的 ticker 或你不再需要的研究记录。`
-      : `确定要从观察池删除 ${target} 吗？\n\n这会移除观察池条目并清除本地财务缓存；历史快照和研究笔记会保留。`;
+      ? `确定要彻底删除 ${target} 吗？\n\n这会移除公司条目、本地财务缓存、研究队列、研究笔记和历史快照。这个操作主要用于清理输错的 ticker 或你不再需要的研究记录。`
+      : `确定要从研究队列删除 ${target} 吗？\n\n这会移除公司条目并清除本地财务缓存；历史快照和研究笔记会保留。`;
     const ok = window.confirm(message);
     if (!ok) return;
     if (purge) {
@@ -132,7 +191,7 @@ function App() {
       const nextTicker = target === normalizedTicker ? nextAvailable : normalizedTicker;
       setTicker(nextTicker);
       await loadAll(nextTicker);
-      notify(result.message, "success", purge ? "彻底删除完成" : "已从观察池删除");
+      notify(result.message, "success", purge ? "彻底删除完成" : "已从研究队列删除");
     } catch (error) {
       notify(error.message, "error", "删除失败");
     } finally {
@@ -161,6 +220,19 @@ function App() {
       notify(`${normalizedTicker} 研究笔记已保存。`, "success", "笔记已保存");
     } catch (error) {
       notify(error.message, "error", "笔记保存失败");
+    }
+  }
+
+  async function saveMemo(nextMemo) {
+    try {
+      const saved = await api(`/api/notes/${normalizedTicker}/memo`, {
+        method: "PUT",
+        body: JSON.stringify(nextMemo),
+      });
+      setMemo(saved);
+      notify(`${normalizedTicker} 投资备忘录已保存。`, "success", "备忘录已保存");
+    } catch (error) {
+      notify(error.message, "error", "备忘录保存失败");
     }
   }
 
@@ -231,12 +303,12 @@ function App() {
   return (
     <>
       <Shell page={page} setPage={setPage} ticker={ticker} setTicker={setTicker} status={status}>
-        {page === "watchlist" && <Watchlist watchlist={watchlist} setTicker={setTicker} setPage={setPage} addTicker={addTicker} refreshCompany={refreshCompany} deleteTicker={deleteTicker} purgeTicker={(target) => deleteTicker(target, { purge: true })} loading={loading} tickerErrors={tickerErrors} />}
-        {page === "discovery" && <DiscoveryPage setTicker={setTicker} setPage={setPage} addTicker={addTicker} notify={notify} />}
-        {page === "company" && <CompanyAnalysis companyData={companyData} refreshCompany={refreshCompany} savePriceOverride={savePriceOverride} />}
+        {page === "watchlist" && <Watchlist researchQueue={researchQueue} watchlist={watchlist} setTicker={setTicker} setPage={setPage} addTicker={addTicker} refreshCompany={refreshCompany} updateResearchQueueItem={updateResearchQueueItem} deleteResearchQueueItem={deleteResearchQueueItem} deleteTicker={deleteTicker} purgeTicker={(target) => deleteTicker(target, { purge: true })} loading={loading} tickerErrors={tickerErrors} />}
+        {page === "discovery" && <DiscoveryPage setTicker={setTicker} setPage={setPage} addToResearchQueue={addToResearchQueue} notify={notify} />}
+        {page === "company" && <CompanyAnalysis companyData={companyData} queueItem={researchQueue.find((item) => item.ticker === normalizedTicker)} memo={memo} snapshots={snapshots} peerComparison={peerComparison} setPage={setPage} refreshCompany={refreshCompany} savePriceOverride={savePriceOverride} />}
         {page === "valuation" && <ValuationModel ticker={normalizedTicker} companyData={companyData} valuationResult={valuationResult} setValuationResult={setValuationResult} saveSnapshot={saveSnapshot} notify={notify} />}
         {page === "peers" && <PeersPage companyData={companyData} updatePeers={updatePeers} peerSuggestions={peerSuggestions} refreshPeerSuggestions={refreshPeerSuggestions} peerComparison={peerComparison} refreshPeerComparison={refreshPeerComparison} />}
-        {page === "notes" && <NotesPage ticker={normalizedTicker} note={note} saveNote={saveNote} />}
+        {page === "notes" && <NotesPage ticker={normalizedTicker} note={note} memo={memo} saveNote={saveNote} saveMemo={saveMemo} />}
         {page === "history" && <HistorySettings ticker={normalizedTicker} snapshots={snapshots} settings={settings} saveSettings={saveSettings} />}
       </Shell>
       <ToastStack toasts={toasts} dismissToast={dismissToast} />

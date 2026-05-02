@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import http.client
+import html
 import json
+import re
 import socket
 import ssl
 import time
@@ -9,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from typing import Any
 
 
@@ -19,6 +22,8 @@ YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?ra
 ALPHA_VANTAGE_QUOTE_URL = "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={ticker}&apikey={api_key}"
 FRED_DGS10_URL = "https://api.stlouisfed.org/fred/series/observations?series_id=DGS10&api_key={api_key}&file_type=json&sort_order=desc&limit=10"
 QQQ_HOLDINGS_URL = "https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/QQQ/holdings/fund?idType=ticker&interval=monthly&productType=ETF&loadType=initial"
+SP500_SLICKCHARTS_URL = "https://www.slickcharts.com/sp500"
+SP500_WIKIPEDIA_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 PRIMARY_TAXONOMIES = ("us-gaap", "ifrs-full")
 _ticker_cache: dict[str, Any] = {"loaded_at": 0.0, "items": []}
 COMMON_COMPANY_TICKERS = {
@@ -132,6 +137,41 @@ def get_json(url: str, user_agent: str, timeout: int = 20, retries: int = 2) -> 
             raise DataSourceNetworkError(f"{source} 连接中断或超时，系统已自动重试：{_friendly_error_text(exc)}") from exc
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise DataSourceResponseError(f"{source} 返回的数据不是有效 JSON。") from exc
+    detail = _friendly_error_text(last_error) if last_error else "未知错误"
+    raise DataSourceNetworkError(f"{source} 连接失败，系统已自动重试：{detail}")
+
+
+def get_text(url: str, user_agent: str, timeout: int = 20, retries: int = 2) -> str:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": user_agent,
+            "Accept": "text/html,application/xhtml+xml,text/plain",
+            "Accept-Encoding": "identity",
+            "Connection": "close",
+        },
+    )
+    source = _source_name(url)
+    attempts = max(1, retries + 1)
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code in TRANSIENT_HTTP_STATUS_CODES and attempt < attempts - 1:
+                _sleep_before_retry(attempt)
+                continue
+            if exc.code in TRANSIENT_HTTP_STATUS_CODES:
+                raise DataSourceNetworkError(f"{source} 暂时不可用（HTTP {exc.code}），系统已自动重试。") from exc
+            raise DataSourceResponseError(f"{source} 返回 HTTP {exc.code}，当前免费接口没有返回可用页面。") from exc
+        except (urllib.error.URLError, TimeoutError, socket.timeout, ssl.SSLError, http.client.HTTPException) as exc:
+            last_error = exc
+            if attempt < attempts - 1:
+                _sleep_before_retry(attempt)
+                continue
+            raise DataSourceNetworkError(f"{source} 连接中断或超时，系统已自动重试：{_friendly_error_text(exc)}") from exc
     detail = _friendly_error_text(last_error) if last_error else "未知错误"
     raise DataSourceNetworkError(f"{source} 连接失败，系统已自动重试：{detail}")
 
@@ -469,6 +509,166 @@ def fetch_ten_year_yield(api_key: str | None, fallback_yield: float, user_agent:
     except (DataSourceError, urllib.error.URLError, KeyError, ValueError, TypeError):
         pass
     return fallback_yield, "本地默认值"
+
+
+class _HTMLTableParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tables: list[list[list[str]]] = []
+        self._table_depth = 0
+        self._current_table: list[list[str]] | None = None
+        self._current_row: list[str] | None = None
+        self._current_cell: list[str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "table":
+            if self._table_depth == 0:
+                self._current_table = []
+            self._table_depth += 1
+        elif self._table_depth and tag == "tr":
+            self._current_row = []
+        elif self._table_depth and tag in {"td", "th"}:
+            self._current_cell = []
+
+    def handle_data(self, data: str) -> None:
+        if self._current_cell is not None:
+            self._current_cell.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"td", "th"} and self._current_cell is not None and self._current_row is not None:
+            text = html.unescape(" ".join(self._current_cell))
+            text = re.sub(r"\s+", " ", text).strip()
+            self._current_row.append(text)
+            self._current_cell = None
+        elif tag == "tr" and self._current_row is not None and self._current_table is not None:
+            if any(cell for cell in self._current_row):
+                self._current_table.append(self._current_row)
+            self._current_row = None
+        elif tag == "table" and self._table_depth:
+            self._table_depth -= 1
+            if self._table_depth == 0 and self._current_table is not None:
+                self.tables.append(self._current_table)
+                self._current_table = None
+
+
+def _parse_html_tables(markup: str) -> list[list[list[str]]]:
+    parser = _HTMLTableParser()
+    parser.feed(markup)
+    return parser.tables
+
+
+def _parse_percent(text: str) -> float | None:
+    cleaned = text.replace("%", "").replace(",", "").strip()
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned) / 100
+    except ValueError:
+        return None
+
+
+def _normalize_listed_ticker(ticker: str) -> str:
+    return ticker.strip().upper().replace(".", "-")
+
+
+def _payload_from_slickcharts(markup: str, limit: int | None = None) -> dict[str, Any]:
+    for table in _parse_html_tables(markup):
+        if not table:
+            continue
+        headers = [cell.lower() for cell in table[0]]
+        if "company" not in headers or "symbol" not in headers or "weight" not in headers:
+            continue
+        company_idx = headers.index("company")
+        symbol_idx = headers.index("symbol")
+        weight_idx = headers.index("weight")
+        rank_idx = headers.index("#") if "#" in headers else None
+        holdings = []
+        for fallback_rank, row in enumerate(table[1:], start=1):
+            if len(row) <= max(company_idx, symbol_idx, weight_idx):
+                continue
+            ticker = _normalize_listed_ticker(row[symbol_idx])
+            if not ticker:
+                continue
+            rank = fallback_rank
+            if rank_idx is not None and len(row) > rank_idx:
+                try:
+                    rank = int(row[rank_idx].replace(",", ""))
+                except ValueError:
+                    rank = fallback_rank
+            holdings.append({
+                "rank": rank,
+                "ticker": ticker,
+                "name": row[company_idx],
+                "weight": _parse_percent(row[weight_idx]) or 0,
+                "security_type": "Common Stock",
+                "sector": "",
+                "industry": "",
+                "raw": {"source_row": row},
+            })
+        holdings.sort(key=lambda row: row["rank"])
+        if limit:
+            holdings = holdings[:limit]
+        if holdings:
+            return {
+                "pool_id": "sp500",
+                "name": "S&P 500",
+                "as_of": datetime.now(timezone.utc).date().isoformat(),
+                "total_holdings": len(holdings),
+                "source": "Slickcharts S&P 500 companies by weight",
+                "holdings": holdings,
+            }
+    raise DataSourceResponseError("Slickcharts 页面没有解析到 S&P 500 成分股表格。")
+
+
+def _payload_from_wikipedia_sp500(markup: str, limit: int | None = None) -> dict[str, Any]:
+    for table in _parse_html_tables(markup):
+        if not table:
+            continue
+        headers = [cell.lower() for cell in table[0]]
+        if "symbol" not in headers or "security" not in headers:
+            continue
+        symbol_idx = headers.index("symbol")
+        name_idx = headers.index("security")
+        sector_idx = headers.index("gics sector") if "gics sector" in headers else None
+        industry_idx = headers.index("gics sub-industry") if "gics sub-industry" in headers else None
+        holdings = []
+        for rank, row in enumerate(table[1:], start=1):
+            if len(row) <= max(symbol_idx, name_idx):
+                continue
+            ticker = _normalize_listed_ticker(row[symbol_idx])
+            if not ticker:
+                continue
+            holdings.append({
+                "rank": rank,
+                "ticker": ticker,
+                "name": row[name_idx],
+                "weight": 0,
+                "security_type": "Common Stock",
+                "sector": row[sector_idx] if sector_idx is not None and len(row) > sector_idx else "",
+                "industry": row[industry_idx] if industry_idx is not None and len(row) > industry_idx else "",
+                "raw": {"source_row": row},
+            })
+        if limit:
+            holdings = holdings[:limit]
+        if holdings:
+            return {
+                "pool_id": "sp500",
+                "name": "S&P 500",
+                "as_of": datetime.now(timezone.utc).date().isoformat(),
+                "total_holdings": len(holdings),
+                "source": "Wikipedia List of S&P 500 companies",
+                "holdings": holdings,
+            }
+    raise DataSourceResponseError("Wikipedia 页面没有解析到 S&P 500 成分股表格。")
+
+
+def fetch_sp500_holdings(user_agent: str, limit: int | None = None) -> dict[str, Any]:
+    try:
+        markup = get_text(SP500_SLICKCHARTS_URL, user_agent)
+        return _payload_from_slickcharts(markup, limit)
+    except DataSourceError:
+        markup = get_text(SP500_WIKIPEDIA_URL, user_agent)
+        return _payload_from_wikipedia_sp500(markup, limit)
 
 
 def fetch_qqq_holdings(user_agent: str, limit: int | None = None) -> dict[str, Any]:

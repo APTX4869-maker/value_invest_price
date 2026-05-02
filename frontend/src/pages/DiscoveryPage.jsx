@@ -47,14 +47,15 @@ function DiscoveryReasons({ row }) {
   );
 }
 
-function DiscoveryRow({ row, onOpen, onAdd }) {
+function DiscoveryRow({ row, poolName, onOpen, onAdd }) {
   const ready = row.status === "ready";
   return (
     <tr className={row.label === "重点研究" ? "discovery-focus-row" : ""}>
       <td>
         <strong>#{row.discovery_rank || "-"} {row.ticker}</strong>
         <span>{row.name}</span>
-        <small>QQQ #{row.holding_rank} · 权重 {formatPercent(row.qqq_weight)}</small>
+        <small>{poolName} #{row.pool_rank || row.holding_rank || "-"} · 权重 {row.pool_weight ? formatPercent(row.pool_weight) : "-"}</small>
+        {row.sector || row.industry ? <small>{row.sector || row.industry}</small> : null}
       </td>
       <td><Badge tone={labelTone(row.label)}>{row.label}</Badge></td>
       <td>{ready ? confidenceText(row.confidence) : "-"}</td>
@@ -74,26 +75,34 @@ function DiscoveryRow({ row, onOpen, onAdd }) {
       </td>
       <td>
         <div className="discovery-actions">
-          <button className="ghost icon-button" onClick={() => onOpen(row)} title="打开公司分析"><ExternalLink size={15} /></button>
-          <button className="ghost icon-button" onClick={() => onAdd(row)} title="加入观察池"><Plus size={15} /></button>
+          <button className="ghost icon-button" onClick={() => onOpen(row)} title="打开公司档案"><ExternalLink size={15} /></button>
+          <button className="ghost icon-button" onClick={() => onAdd(row)} title="加入研究队列"><Plus size={15} /></button>
         </div>
       </td>
     </tr>
   );
 }
 
-export function DiscoveryPage({ setTicker, setPage, addTicker, notify }) {
+export function DiscoveryPage({ setTicker, setPage, addToResearchQueue, notify }) {
   const [data, setData] = useState(null);
+  const [pools, setPools] = useState([]);
+  const [poolId, setPoolId] = useState("sp500");
+  const [scanLimit, setScanLimit] = useState(50);
+  const [customTickers, setCustomTickers] = useState("");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("all");
 
   async function loadDiscovery() {
     setBusy(true);
     try {
-      const result = await api("/api/discovery/qqq?limit=30");
+      const [poolData, result] = await Promise.all([
+        api("/api/discovery/pools").catch(() => []),
+        api(`/api/discovery/latest?pool_id=${poolId}&limit=${scanLimit}`),
+      ]);
+      setPools(poolData);
       setData(result);
     } catch (error) {
-      notify?.(error.message, "error", "发现池加载失败");
+      notify?.(error.message, "error", "发现雷达加载失败");
     } finally {
       setBusy(false);
     }
@@ -102,14 +111,54 @@ export function DiscoveryPage({ setTicker, setPage, addTicker, notify }) {
   async function refreshScan() {
     setBusy(true);
     try {
-      const result = await api("/api/discovery/qqq/scan", {
+      const result = await api("/api/discovery/scan", {
         method: "POST",
-        body: JSON.stringify({ limit: 30, refresh_holdings: true, refresh_financials: true }),
+        body: JSON.stringify({ pool_id: poolId, limit: scanLimit, refresh_holdings: true, refresh_financials: true }),
       });
       setData(result);
-      notify?.(`已扫描 QQQ 前 30，成功刷新 ${result.refreshed?.length || 0} 家。`, "success", "发现池已更新");
+      notify?.(`已扫描 ${result.universe} 前 ${scanLimit}，成功刷新 ${result.refreshed?.length || 0} 家。`, "success", "发现雷达已更新");
     } catch (error) {
-      notify?.(error.message, "error", "发现池刷新失败");
+      notify?.(error.message, "error", "发现雷达刷新失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshMembersOnly() {
+    setBusy(true);
+    try {
+      await api(`/api/discovery/pools/${poolId}/refresh?limit=${scanLimit}`, { method: "POST" });
+      await loadDiscovery();
+      notify?.(`${data?.universe || "股票池"} 成分股已刷新。`, "success", "成分已更新");
+    } catch (error) {
+      notify?.(error.message, "error", "成分刷新失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveCustomPool() {
+    const tickers = customTickers.split(/[\s,;，；]+/).map((item) => item.trim()).filter(Boolean);
+    if (!tickers.length) {
+      notify?.("请输入至少 1 个 ticker。", "error", "自定义池为空");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api("/api/discovery/pools/custom/members", {
+        method: "PUT",
+        body: JSON.stringify({ name: "自定义池", tickers }),
+      });
+      setPoolId("custom");
+      const [poolData, result] = await Promise.all([
+        api("/api/discovery/pools").catch(() => []),
+        api(`/api/discovery/latest?pool_id=custom&limit=${scanLimit}`),
+      ]);
+      setPools(poolData);
+      setData(result);
+      notify?.(`已保存 ${tickers.length} 个自定义 ticker。`, "success", "自定义池已保存");
+    } catch (error) {
+      notify?.(error.message, "error", "自定义池保存失败");
     } finally {
       setBusy(false);
     }
@@ -117,7 +166,7 @@ export function DiscoveryPage({ setTicker, setPage, addTicker, notify }) {
 
   useEffect(() => {
     loadDiscovery();
-  }, []);
+  }, [poolId, scanLimit]);
 
   const rows = data?.rows || [];
   const filteredRows = useMemo(() => {
@@ -128,34 +177,65 @@ export function DiscoveryPage({ setTicker, setPage, addTicker, notify }) {
   }, [rows, filter]);
 
   function openCompany(row) {
-    setTicker(row.ticker);
-    setPage("company");
+    addToResearchQueue?.({ ...row, pool_id: data?.pool_id }, { open: true });
   }
 
-  async function addToWatchlist(row) {
-    const ok = await addTicker(row.ticker, row.name);
-    if (ok) setPage("company");
+  async function addToQueue(row) {
+    await addToResearchQueue?.({ ...row, pool_id: data?.pool_id });
   }
+
+  const poolName = data?.universe || pools.find((pool) => pool.id === poolId)?.name || "股票池";
 
   return (
     <section className="page-section discovery-page">
       <div className="hero-panel discovery-hero">
         <div>
           <div className="section-title-row">
-            <Badge tone="neutral">QQQ 前 30</Badge>
-            <Badge tone="neutral">{data?.as_of ? `持仓日期 ${data.as_of}` : "等待持仓数据"}</Badge>
+            <Badge tone="neutral">{poolName} 前 {scanLimit === 520 ? "全部" : scanLimit}</Badge>
+            <Badge tone="neutral">{data?.as_of ? `成分日期 ${data.as_of}` : "等待成分数据"}</Badge>
           </div>
-          <h2>从 QQQ 里找值得继续研究的公司</h2>
+          <h2>从 S&P 500 或主题池里找值得继续研究的公司</h2>
           <p>
-            排名先看估值置信度，再看目标中枢相对当前价格的折价/溢价，同时把护城河、财务质量和行业竞争放进解释里。
+            排名先看估值置信度，再看目标中枢相对当前价格的折价/溢价，同时把护城河、财务质量、竞争风险和数据缺口放进解释里。
             这里是研究线索，不是买卖建议。
           </p>
         </div>
         <div className="discovery-hero-actions">
-          <button onClick={refreshScan} disabled={busy}><RefreshCcw size={16} />{busy ? "扫描中" : "刷新并扫描前 30"}</button>
+          <button onClick={refreshScan} disabled={busy}><RefreshCcw size={16} />{busy ? "扫描中" : "刷新并扫描"}</button>
           <button className="ghost" onClick={loadDiscovery} disabled={busy}><DatabaseZap size={16} />只读取缓存</button>
+          <button className="ghost" onClick={refreshMembersOnly} disabled={busy}>刷新成分股</button>
         </div>
       </div>
+
+      <div className="radar-controls">
+        <label>
+          <span>股票池</span>
+          <select value={poolId} onChange={(event) => setPoolId(event.target.value)}>
+            {(pools.length ? pools : [{ id: "sp500", name: "S&P 500" }, { id: "qqq", name: "QQQ" }]).map((pool) => (
+              <option key={pool.id} value={pool.id}>{pool.name}</option>
+            ))}
+          </select>
+        </label>
+        <div>
+          <span>扫描范围</span>
+          <div className="segmented">
+            <button className={scanLimit === 50 ? "active" : ""} onClick={() => setScanLimit(50)}>Top 50</button>
+            <button className={scanLimit === 100 ? "active" : ""} onClick={() => setScanLimit(100)}>Top 100</button>
+            <button className={scanLimit === 520 ? "active" : ""} onClick={() => setScanLimit(520)}>全部</button>
+          </div>
+        </div>
+        <p>{data?.source || "免费源与本地缓存会优先保证可用性；缺数据的公司会保留在待补数据里。"}</p>
+      </div>
+
+      {poolId === "custom" ? (
+        <div className="custom-pool-editor">
+          <label>
+            <span>自定义 ticker</span>
+            <textarea value={customTickers} onChange={(event) => setCustomTickers(event.target.value)} placeholder="例如：NVDA, MSFT, AVGO, AMD" />
+          </label>
+          <button onClick={saveCustomPool} disabled={busy}>保存自定义池</button>
+        </div>
+      ) : null}
 
       <div className="mini-stats">
         <Stat label="已评估" value={`${data?.summary?.ready || 0}/${data?.summary?.total || 0}`} hint="有本地财务数据并完成估值" />
@@ -181,7 +261,7 @@ export function DiscoveryPage({ setTicker, setPage, addTicker, notify }) {
           <table className="peer-table discovery-table">
             <thead>
               <tr>
-                <th>公司</th>
+                <th>公司 / 股票池位置</th>
                 <th>标签</th>
                 <th>置信度</th>
                 <th>低估/高估</th>
@@ -195,13 +275,13 @@ export function DiscoveryPage({ setTicker, setPage, addTicker, notify }) {
             </thead>
             <tbody>
               {filteredRows.map((row) => (
-                <DiscoveryRow key={row.ticker} row={row} onOpen={openCompany} onAdd={addToWatchlist} />
+                <DiscoveryRow key={row.ticker} row={row} poolName={poolName} onOpen={openCompany} onAdd={addToQueue} />
               ))}
             </tbody>
           </table>
         </div>
       ) : (
-        <EmptyState title="还没有发现结果" text="点击刷新并扫描前 30，系统会从 QQQ 持仓和本地估值体系生成研究队列。" />
+        <EmptyState title="还没有发现结果" text="点击刷新并扫描，系统会从股票池成分和本地估值体系生成研究队列线索。" />
       )}
     </section>
   );

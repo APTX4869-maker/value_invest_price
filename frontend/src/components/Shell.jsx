@@ -43,13 +43,13 @@ export function Shell({ page, setPage, ticker, setTicker, children, status }) {
         </nav>
         <div className="sidebar-note">
           <Sparkles size={16} />
-          <p>先看白话结论，再展开公式。这个工具是帮你复盘假设，不是替你下单。</p>
+          <p>先用发现雷达找线索，再进公司档案写清楚假设。这个工具帮你复盘，不替你下单。</p>
         </div>
       </aside>
       <main className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Personal investing research</p>
+            <p className="eyebrow">Discovery to dossier workflow</p>
             <h1>{pages.find((item) => item.id === page)?.label}</h1>
           </div>
           <div className="status-pill"><Database size={16} />{status}</div>

@@ -1,6 +1,8 @@
 import backend.db as db_module
 from backend.db import init_db
-from backend.discovery import get_cached_qqq_holdings, save_etf_holdings, score_discovery_row
+from backend.discovery import get_cached_qqq_holdings, get_cached_stock_pool, save_etf_holdings, save_stock_pool_members, score_discovery_row
+from backend.routers.discovery import update_custom_pool_members
+from backend.schemas import StockPoolMembersRequest
 
 
 def _use_temp_db(tmp_path, monkeypatch):
@@ -26,6 +28,36 @@ def test_save_and_read_qqq_holdings_cache(tmp_path, monkeypatch):
     assert cached["as_of"] == "2026-04-29"
     assert cached["holdings"][0]["ticker"] == "NVDA"
     assert cached["holdings"][0]["weight"] == 0.09
+
+
+def test_save_and_read_generic_stock_pool_cache(tmp_path, monkeypatch):
+    _use_temp_db(tmp_path, monkeypatch)
+    save_stock_pool_members({
+        "pool_id": "sp500",
+        "name": "S&P 500",
+        "as_of": "2026-05-02",
+        "source": "test",
+        "total_holdings": 2,
+        "holdings": [
+            {"rank": 1, "ticker": "MSFT", "name": "Microsoft Corp", "weight": 0.06, "sector": "Information Technology", "raw": {}},
+            {"rank": 2, "ticker": "GOOG", "name": "Alphabet Inc", "weight": 0.04, "sector": "Communication Services", "raw": {}},
+        ],
+    })
+
+    cached = get_cached_stock_pool("sp500", limit=1)
+
+    assert cached["name"] == "S&P 500"
+    assert cached["holdings"][0]["ticker"] == "MSFT"
+    assert cached["holdings"][0]["sector"] == "Information Technology"
+
+
+def test_update_custom_pool_members_normalizes_tickers(tmp_path, monkeypatch):
+    _use_temp_db(tmp_path, monkeypatch)
+
+    update_custom_pool_members("custom", StockPoolMembersRequest(tickers=["brk.b", " msft ", "MSFT"]))
+    cached = get_cached_stock_pool("custom", limit=10)
+
+    assert [item["ticker"] for item in cached["holdings"]] == ["BRK-B", "MSFT"]
 
 
 def test_discovery_score_prefers_confident_undervalued_quality_name():

@@ -5,7 +5,7 @@ from typing import Any
 
 from .db import connect, dumps, loads, now_iso, row_to_dict
 from .dependencies import get_setting
-from .data_sources import fetch_company_facts, fetch_qqq_holdings
+from .data_sources import fetch_company_facts, fetch_qqq_holdings, fetch_sp500_holdings
 from .valuation import run_target_price_calculator
 
 
@@ -35,6 +35,22 @@ COMPETITION_BY_TYPE = {
     "default": (55, "行业竞争信息不足，按中等竞争强度处理。"),
 }
 
+POOL_LABELS = {
+    "sp500": "S&P 500",
+    "qqq": "QQQ",
+    "custom": "自定义池",
+}
+
+
+def normalize_pool_id(pool_id: str | None) -> str:
+    text = (pool_id or "sp500").strip().lower()
+    aliases = {"s&p500": "sp500", "s&p_500": "sp500", "sp-500": "sp500", "spy": "sp500", "nasdaq100": "qqq"}
+    return aliases.get(text, text)
+
+
+def pool_display_name(pool_id: str) -> str:
+    return POOL_LABELS.get(normalize_pool_id(pool_id), pool_id.upper())
+
 
 def save_etf_holdings(payload: dict[str, Any]) -> None:
     ts = now_iso()
@@ -62,12 +78,107 @@ def save_etf_holdings(payload: dict[str, Any]) -> None:
             )
 
 
+def save_stock_pool_members(payload: dict[str, Any]) -> None:
+    pool_id = normalize_pool_id(payload.get("pool_id") or payload.get("etf"))
+    pool_name = payload.get("name") or pool_display_name(pool_id)
+    ts = now_iso()
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO stock_pools
+            (id, name, kind, description, default_limit, source, as_of, meta_json, created_at, updated_at)
+            VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                source = excluded.source,
+                as_of = excluded.as_of,
+                meta_json = excluded.meta_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                pool_id,
+                pool_name,
+                "etf" if pool_id == "qqq" else "index" if pool_id == "sp500" else "custom",
+                int(payload.get("default_limit") or (30 if pool_id == "qqq" else 50)),
+                payload.get("source", ""),
+                payload.get("as_of", ""),
+                dumps({
+                    "total_holdings": payload.get("total_holdings"),
+                    "source": payload.get("source", ""),
+                }),
+                ts,
+                ts,
+            ),
+        )
+        conn.execute("DELETE FROM stock_pool_members WHERE pool_id = ?", (pool_id,))
+        for item in payload.get("holdings", []):
+            conn.execute(
+                """
+                INSERT INTO stock_pool_members
+                (pool_id, ticker, name, rank, weight, sector, industry, security_type,
+                 source, raw_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    pool_id,
+                    str(item.get("ticker", "")).upper(),
+                    item.get("name") or item.get("ticker", ""),
+                    item.get("rank"),
+                    item.get("weight") or 0,
+                    item.get("sector", ""),
+                    item.get("industry", ""),
+                    item.get("security_type", ""),
+                    payload.get("source", ""),
+                    dumps(item.get("raw", {})),
+                    ts,
+                ),
+            )
+
+
+def list_stock_pools() -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT p.*,
+                   COUNT(m.ticker) AS member_count,
+                   MAX(m.updated_at) AS members_updated_at
+            FROM stock_pools p
+            LEFT JOIN stock_pool_members m ON m.pool_id = p.id
+            GROUP BY p.id
+            ORDER BY CASE p.id WHEN 'sp500' THEN 1 WHEN 'qqq' THEN 2 WHEN 'custom' THEN 3 ELSE 9 END, p.name
+            """
+        ).fetchall()
+    pools = []
+    for row in rows:
+        item = row_to_dict(row)
+        item["meta"] = loads(item.pop("meta_json", "{}"), {})
+        pools.append(item)
+    return pools
+
+
 def refresh_qqq_holdings_cache(limit: int | None = None) -> dict[str, Any]:
     user_agent = get_setting("sec_user_agent", "personal-value-study contact@example.com")
     payload = fetch_qqq_holdings(user_agent)
     save_etf_holdings(payload)
+    save_stock_pool_members({**payload, "pool_id": "qqq", "name": "QQQ"})
     if limit:
         payload = {**payload, "holdings": payload["holdings"][:limit]}
+    return payload
+
+
+def refresh_stock_pool_cache(pool_id: str = "sp500", limit: int | None = None) -> dict[str, Any]:
+    pool_id = normalize_pool_id(pool_id)
+    user_agent = get_setting("sec_user_agent", "personal-value-study contact@example.com")
+    if pool_id == "qqq":
+        payload = refresh_qqq_holdings_cache(limit=None)
+        payload = {**payload, "pool_id": "qqq", "name": "QQQ"}
+    elif pool_id == "sp500":
+        payload = fetch_sp500_holdings(user_agent)
+        save_stock_pool_members(payload)
+    else:
+        payload = get_cached_stock_pool(pool_id, limit=limit or 520)
+    if limit:
+        payload = {**payload, "holdings": payload.get("holdings", [])[:limit]}
     return payload
 
 
@@ -92,10 +203,63 @@ def get_cached_qqq_holdings(limit: int = 30) -> dict[str, Any]:
     }
 
 
+def get_cached_stock_pool(pool_id: str = "sp500", limit: int = 50) -> dict[str, Any]:
+    pool_id = normalize_pool_id(pool_id)
+    with connect() as conn:
+        pool_row = conn.execute("SELECT * FROM stock_pools WHERE id = ?", (pool_id,)).fetchone()
+        rows = conn.execute(
+            """
+            SELECT * FROM stock_pool_members
+            WHERE pool_id = ?
+            ORDER BY COALESCE(rank, 999999), ticker
+            LIMIT ?
+            """,
+            (pool_id, limit),
+        ).fetchall()
+    pool = row_to_dict(pool_row) or {
+        "id": pool_id,
+        "name": pool_display_name(pool_id),
+        "source": "未缓存",
+        "as_of": None,
+        "updated_at": None,
+        "meta_json": "{}",
+    }
+    holdings = []
+    for row in rows:
+        item = row_to_dict(row)
+        item["raw"] = loads(item.pop("raw_json", "{}"), {})
+        holdings.append(item)
+    meta = loads(pool.pop("meta_json", "{}"), {})
+    return {
+        "pool_id": pool_id,
+        "name": pool.get("name") or pool_display_name(pool_id),
+        "as_of": pool.get("as_of"),
+        "source": pool.get("source") or "未缓存",
+        "updated_at": pool.get("updated_at"),
+        "total_holdings": meta.get("total_holdings") or len(holdings),
+        "holdings": holdings,
+    }
+
+
 def ensure_qqq_holdings(limit: int = 30, refresh: bool = False) -> dict[str, Any]:
     cached = get_cached_qqq_holdings(limit)
     if refresh or not cached["holdings"]:
         return refresh_qqq_holdings_cache(limit)
+    return cached
+
+
+def ensure_stock_pool(pool_id: str = "sp500", limit: int = 50, refresh: bool = False) -> dict[str, Any]:
+    pool_id = normalize_pool_id(pool_id)
+    if pool_id == "qqq":
+        cached = get_cached_stock_pool("qqq", limit)
+        if cached["holdings"]:
+            return refresh_stock_pool_cache("qqq", limit) if refresh else cached
+        qqq_payload = ensure_qqq_holdings(limit, refresh)
+        save_stock_pool_members({**qqq_payload, "pool_id": "qqq", "name": "QQQ"})
+        return get_cached_stock_pool("qqq", limit)
+    cached = get_cached_stock_pool(pool_id, limit)
+    if refresh or not cached["holdings"]:
+        return refresh_stock_pool_cache(pool_id, limit)
     return cached
 
 
@@ -237,7 +401,7 @@ def _score_moat(result: dict[str, Any], facts: dict[str, Any], holding: dict[str
     score = base + min(6, weight * 80) + max(-8, min(8, (quality_score - 60) / 5))
     notes = [note]
     if weight >= 0.03:
-        notes.append("QQQ 权重较高，说明它在指数里的规模和流动性地位靠前。")
+        notes.append("股票池权重较高，说明它在当前指数/主题池里的规模和流动性地位靠前。")
     if quality_score >= 72:
         notes.append("质量分较高，财务表现对护城河判断有支撑。")
     return int(max(20, min(95, round(score)))), notes
@@ -318,7 +482,11 @@ def score_discovery_row(holding: dict[str, Any], facts: dict[str, Any], result: 
         "ticker": holding["ticker"],
         "name": holding.get("name", holding["ticker"]),
         "holding_rank": holding.get("rank"),
+        "pool_rank": holding.get("rank"),
+        "pool_weight": holding.get("weight", 0),
         "qqq_weight": holding.get("weight", 0),
+        "sector": holding.get("sector", ""),
+        "industry": holding.get("industry", ""),
         "status": "ready",
         "label": label,
         "rank_score": discovery_score,
@@ -343,8 +511,15 @@ def score_discovery_row(holding: dict[str, Any], facts: dict[str, Any], result: 
     }
 
 
-def scan_qqq_candidates(limit: int = 30, refresh_holdings: bool = False, refresh_financials: bool = False) -> dict[str, Any]:
-    holdings_payload = ensure_qqq_holdings(limit, refresh_holdings)
+def scan_stock_pool_candidates(
+    pool_id: str = "sp500",
+    limit: int = 50,
+    refresh_holdings: bool = False,
+    refresh_financials: bool = False,
+) -> dict[str, Any]:
+    pool_id = normalize_pool_id(pool_id)
+    pool_name = pool_display_name(pool_id)
+    holdings_payload = ensure_stock_pool(pool_id, limit, refresh_holdings)
     holdings = holdings_payload["holdings"][:limit]
     refreshed = []
     errors = []
@@ -364,10 +539,14 @@ def scan_qqq_candidates(limit: int = 30, refresh_holdings: bool = False, refresh
                 "ticker": holding["ticker"],
                 "name": holding.get("name", holding["ticker"]),
                 "holding_rank": holding.get("rank"),
+                "pool_rank": holding.get("rank"),
+                "pool_weight": holding.get("weight", 0),
                 "qqq_weight": holding.get("weight", 0),
+                "sector": holding.get("sector", ""),
+                "industry": holding.get("industry", ""),
                 "status": "missing_facts",
                 "label": "数据不足",
-                "summary": "还没有本地财务数据。点击刷新前 30 后，系统会从 SEC 和行情源补齐。",
+                "summary": f"还没有本地财务数据。点击刷新扫描后，系统会尝试从 SEC 和行情源补齐 {pool_name} 候选公司。",
                 "reasons": {
                     "data_quality": ["缺少本地财务缓存，无法运行估值体系。"],
                     "valuation": [],
@@ -389,7 +568,11 @@ def scan_qqq_candidates(limit: int = 30, refresh_holdings: bool = False, refresh
                 "ticker": holding["ticker"],
                 "name": holding.get("name", holding["ticker"]),
                 "holding_rank": holding.get("rank"),
+                "pool_rank": holding.get("rank"),
+                "pool_weight": holding.get("weight", 0),
                 "qqq_weight": holding.get("weight", 0),
+                "sector": holding.get("sector", ""),
+                "industry": holding.get("industry", ""),
                 "status": "error",
                 "label": "估值失败",
                 "summary": f"估值计算失败：{exc}",
@@ -405,7 +588,15 @@ def scan_qqq_candidates(limit: int = 30, refresh_holdings: bool = False, refresh
         row["discovery_rank"] = index
     ready_rows = [row for row in rows if row.get("status") == "ready"]
     return {
-        "universe": "QQQ",
+        "universe": pool_name,
+        "pool_id": pool_id,
+        "pool": {
+            "id": pool_id,
+            "name": holdings_payload.get("name") or pool_name,
+            "source": holdings_payload.get("source"),
+            "as_of": holdings_payload.get("as_of"),
+            "total_holdings": holdings_payload.get("total_holdings"),
+        },
         "limit": limit,
         "as_of": holdings_payload.get("as_of"),
         "source": holdings_payload.get("source"),
@@ -420,3 +611,12 @@ def scan_qqq_candidates(limit: int = 30, refresh_holdings: bool = False, refresh
         },
         "rows": rows,
     }
+
+
+def scan_qqq_candidates(limit: int = 30, refresh_holdings: bool = False, refresh_financials: bool = False) -> dict[str, Any]:
+    return scan_stock_pool_candidates(
+        pool_id="qqq",
+        limit=limit,
+        refresh_holdings=refresh_holdings,
+        refresh_financials=refresh_financials,
+    )

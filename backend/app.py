@@ -9,6 +9,7 @@ from .routers import (
     discovery_router,
     health_router,
     notes_router,
+    research_queue_router,
     settings_router,
     valuation_router,
     watchlist_router,
@@ -34,6 +35,7 @@ app.include_router(health_router)
 app.include_router(watchlist_router)
 app.include_router(companies_router)
 app.include_router(discovery_router)
+app.include_router(research_queue_router)
 app.include_router(valuation_router)
 app.include_router(notes_router)
 app.include_router(settings_router)
