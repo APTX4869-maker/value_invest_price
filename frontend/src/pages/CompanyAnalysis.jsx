@@ -39,7 +39,22 @@ function DossierCard({ title, children }) {
   );
 }
 
-export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, snapshots = [], peerComparison, setPage, refreshCompany, refreshSecPackage, savePriceOverride }) {
+function DraftList({ title, items = [] }) {
+  return (
+    <div>
+      <strong>{title}</strong>
+      {items.length ? (
+        <ul>
+          {items.map((item, index) => <li key={`${title}-${index}`}>{item}</li>)}
+        </ul>
+      ) : (
+        <p>待确认</p>
+      )}
+    </div>
+  );
+}
+
+export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, researchDrafts = [], snapshots = [], peerComparison, setPage, refreshCompany, refreshSecPackage, generateSecDraft, savePriceOverride }) {
   const [priceDraft, setPriceDraft] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const company = companyData?.company;
@@ -58,6 +73,7 @@ export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, snap
   const watchPoints = valuation?.plain_language?.watch || valuation?.data_quality?.warnings || [];
   const memoConclusion = memo?.conclusion || "不确定";
   const secPackages = secPackage?.packages || [];
+  const latestDraft = researchDrafts[0]?.draft || null;
 
   return (
     <section className="page-section dossier-page">
@@ -225,8 +241,34 @@ export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, snap
                 从最新 10-K / 10-Q 里提取 Business、Risk Factors、MD&A 等章节。这里是后续 LLM 初稿的证据底座，任何结论都应该能回到 filing 来源。
               </p>
             </div>
-            <button onClick={() => refreshSecPackage(company.ticker)}><RefreshCcw size={16} />刷新 SEC 研究包</button>
+            <div className="sec-evidence-actions">
+              <button onClick={() => refreshSecPackage(company.ticker)}><RefreshCcw size={16} />刷新 SEC 研究包</button>
+              <button className="ghost" onClick={() => generateSecDraft(company.ticker)}>生成 AI 初稿</button>
+            </div>
           </div>
+
+          {latestDraft ? (
+            <article className="panel ai-draft-panel">
+              <div className="panel-heading">
+                <div>
+                  <h3>AI 初稿 · 待确认</h3>
+                  <p className="muted">只基于已提取的 SEC 证据生成。确认前不要把它当作最终结论。</p>
+                </div>
+                <Badge tone="warn">pending</Badge>
+              </div>
+              <div className="ai-draft-grid">
+                <div>
+                  <strong>业务模式</strong>
+                  <p>{latestDraft.business_model || "待确认"}</p>
+                </div>
+                <DraftList title="增长驱动" items={latestDraft.growth_drivers} />
+                <DraftList title="护城河来源" items={latestDraft.moat_sources} />
+                <DraftList title="竞争格局" items={latestDraft.competition} />
+                <DraftList title="关键风险" items={latestDraft.key_risks} />
+                <DraftList title="继续验证" items={latestDraft.follow_up_questions} />
+              </div>
+            </article>
+          ) : null}
 
           {secPackages.length ? (
             <div className="sec-package-list">

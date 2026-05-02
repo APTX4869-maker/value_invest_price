@@ -14,6 +14,7 @@ from ..data_sources import (
 )
 from ..db import connect, dumps, now_iso, row_to_dict
 from ..dependencies import get_company_or_404, get_facts_or_404, get_setting, serialize_company
+from ..llm_research import LLMConfigError, LLMProviderError, generate_company_research_draft, list_research_drafts
 from ..peer_recommendations import recommend_peers
 from ..sec_filings import get_cached_research_package, list_company_filings, refresh_company_research_package
 from ..schemas import PeersRequest, PriceOverrideRequest
@@ -384,6 +385,32 @@ def refresh_research_package(ticker: str, limit: int = 2) -> dict[str, Any]:
         raise HTTPException(status_code=502, detail=_source_response_help(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=_source_response_help(exc)) from exc
+
+
+def _all_settings() -> dict[str, Any]:
+    from ..db import loads
+
+    with connect() as conn:
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    return {row["key"]: loads(row["value"]) for row in rows}
+
+
+@router.get("/company/{ticker}/research-drafts")
+def company_research_drafts(ticker: str) -> list[dict[str, Any]]:
+    return list_research_drafts(ticker)
+
+
+@router.post("/company/{ticker}/sec-draft")
+def generate_sec_research_draft(ticker: str) -> dict[str, Any]:
+    package = get_cached_research_package(ticker)
+    if not package.get("packages"):
+        raise HTTPException(status_code=422, detail="还没有 SEC 研究包。请先刷新 SEC 研究包，再生成 AI 初稿。")
+    try:
+        return generate_company_research_draft(ticker, package["packages"], _all_settings())
+    except LLMConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.put("/company/{ticker}/peers")

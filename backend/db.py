@@ -251,6 +251,20 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (ticker, accession_no)
             );
+
+            CREATE TABLE IF NOT EXISTS research_drafts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                draft_type TEXT NOT NULL,
+                status TEXT DEFAULT 'pending_confirmation',
+                provider TEXT DEFAULT '',
+                model TEXT DEFAULT '',
+                source_accessions_json TEXT DEFAULT '[]',
+                draft_json TEXT DEFAULT '{}',
+                error TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         migrate_db(conn)

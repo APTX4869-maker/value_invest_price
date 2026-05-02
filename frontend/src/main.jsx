@@ -22,6 +22,7 @@ function App() {
   const [note, setNote] = useState(null);
   const [memo, setMemo] = useState(null);
   const [secPackage, setSecPackage] = useState(null);
+  const [researchDrafts, setResearchDrafts] = useState([]);
   const [snapshots, setSnapshots] = useState([]);
   const [settings, setSettings] = useState({});
   const [peerSuggestions, setPeerSuggestions] = useState([]);
@@ -47,13 +48,14 @@ function App() {
   async function loadAll(target = normalizedTicker) {
     setLoading(true);
     try {
-      const [watch, queue, company, noteData, memoData, secPackageData, snaps, peerSuggestionData, peerComparisonData, settingData] = await Promise.all([
+      const [watch, queue, company, noteData, memoData, secPackageData, draftData, snaps, peerSuggestionData, peerComparisonData, settingData] = await Promise.all([
         api("/api/watchlist"),
         api("/api/research-queue").catch(() => []),
         api(`/api/company/${target}`).catch(() => null),
         api(`/api/notes/${target}`).catch(() => null),
         api(`/api/notes/${target}/memo`).catch(() => null),
         api(`/api/company/${target}/research-package`).catch(() => null),
+        api(`/api/company/${target}/research-drafts`).catch(() => []),
         api(`/api/snapshots/${target}`).catch(() => []),
         api(`/api/company/${target}/peer-suggestions`).catch(() => []),
         api(`/api/company/${target}/peers/compare`).catch(() => null),
@@ -65,6 +67,7 @@ function App() {
       setNote(noteData);
       setMemo(memoData);
       setSecPackage(secPackageData);
+      setResearchDrafts(draftData);
       setSnapshots(snaps);
       setPeerSuggestions(peerSuggestionData);
       setPeerComparison(peerComparisonData);
@@ -180,6 +183,19 @@ function App() {
       notify(`已提取 ${result.packages?.length || 0} 份 SEC 文件，找到 ${found} 个研究章节。`, "success", "SEC 研究包已更新");
     } catch (error) {
       notify(error.message, "error", "SEC 研究包刷新失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function generateSecDraft(target = normalizedTicker) {
+    setLoading(true);
+    try {
+      const draft = await api(`/api/company/${target}/sec-draft`, { method: "POST" });
+      setResearchDrafts((current) => [draft, ...current.filter((item) => item.id !== draft.id)]);
+      notify(`${target} SEC AI 初稿已生成，状态为待确认。`, "success", "初稿已生成");
+    } catch (error) {
+      notify(error.message, "error", "AI 初稿生成失败");
     } finally {
       setLoading(false);
     }
@@ -322,7 +338,7 @@ function App() {
       <Shell page={page} setPage={setPage} ticker={ticker} setTicker={setTicker} status={status}>
         {page === "watchlist" && <Watchlist researchQueue={researchQueue} watchlist={watchlist} setTicker={setTicker} setPage={setPage} addTicker={addTicker} refreshCompany={refreshCompany} updateResearchQueueItem={updateResearchQueueItem} deleteResearchQueueItem={deleteResearchQueueItem} deleteTicker={deleteTicker} purgeTicker={(target) => deleteTicker(target, { purge: true })} loading={loading} tickerErrors={tickerErrors} />}
         {page === "discovery" && <DiscoveryPage setTicker={setTicker} setPage={setPage} addToResearchQueue={addToResearchQueue} notify={notify} />}
-        {page === "company" && <CompanyAnalysis companyData={companyData} queueItem={researchQueue.find((item) => item.ticker === normalizedTicker)} memo={memo} secPackage={secPackage} snapshots={snapshots} peerComparison={peerComparison} setPage={setPage} refreshCompany={refreshCompany} refreshSecPackage={refreshSecPackage} savePriceOverride={savePriceOverride} />}
+        {page === "company" && <CompanyAnalysis companyData={companyData} queueItem={researchQueue.find((item) => item.ticker === normalizedTicker)} memo={memo} secPackage={secPackage} researchDrafts={researchDrafts} snapshots={snapshots} peerComparison={peerComparison} setPage={setPage} refreshCompany={refreshCompany} refreshSecPackage={refreshSecPackage} generateSecDraft={generateSecDraft} savePriceOverride={savePriceOverride} />}
         {page === "valuation" && <ValuationModel ticker={normalizedTicker} companyData={companyData} valuationResult={valuationResult} setValuationResult={setValuationResult} saveSnapshot={saveSnapshot} notify={notify} />}
         {page === "peers" && <PeersPage companyData={companyData} updatePeers={updatePeers} peerSuggestions={peerSuggestions} refreshPeerSuggestions={refreshPeerSuggestions} peerComparison={peerComparison} refreshPeerComparison={refreshPeerComparison} />}
         {page === "notes" && <NotesPage ticker={normalizedTicker} note={note} memo={memo} saveNote={saveNote} saveMemo={saveMemo} />}

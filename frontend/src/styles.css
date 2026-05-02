@@ -1961,6 +1961,13 @@ pre {
   margin: 0;
 }
 
+.sec-evidence-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .sec-package {
   display: grid;
   gap: 16px;
@@ -2001,6 +2008,47 @@ pre {
 .sec-section small {
   color: var(--green);
   line-height: 1.4;
+}
+
+.ai-draft-panel {
+  display: grid;
+  gap: 16px;
+  border-color: #e2c58c;
+  background: #fffaf0;
+}
+
+.ai-draft-panel .panel-heading p {
+  margin: 4px 0 0;
+}
+
+.ai-draft-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.ai-draft-grid > div {
+  border: 1px solid #ead6a8;
+  border-radius: 8px;
+  background: #fffef9;
+  padding: 14px;
+}
+
+.ai-draft-grid strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--ink);
+}
+
+.ai-draft-grid p,
+.ai-draft-grid li {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.ai-draft-grid ul {
+  margin: 0;
+  padding-left: 18px;
 }
 
 .memo-layout {
