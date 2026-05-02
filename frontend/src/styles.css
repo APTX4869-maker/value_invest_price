@@ -2021,6 +2021,14 @@ pre {
   margin: 4px 0 0;
 }
 
+.draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  align-items: center;
+}
+
 .ai-draft-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

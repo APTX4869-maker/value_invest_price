@@ -121,3 +121,8 @@ class InvestmentMemoRequest(BaseModel):
     review_triggers: list[str] = Field(default_factory=list)
     free_notes: str = ""
     snapshot_id: int | None = None
+
+
+class ResearchDraftPatchRequest(BaseModel):
+    status: str | None = None
+    draft: dict[str, Any] | None = None

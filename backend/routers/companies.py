@@ -14,10 +14,10 @@ from ..data_sources import (
 )
 from ..db import connect, dumps, now_iso, row_to_dict
 from ..dependencies import get_company_or_404, get_facts_or_404, get_setting, serialize_company
-from ..llm_research import LLMConfigError, LLMProviderError, generate_company_research_draft, list_research_drafts
+from ..llm_research import LLMConfigError, LLMProviderError, generate_company_research_draft, list_research_drafts, update_research_draft
 from ..peer_recommendations import recommend_peers
 from ..sec_filings import get_cached_research_package, list_company_filings, refresh_company_research_package
-from ..schemas import PeersRequest, PriceOverrideRequest
+from ..schemas import PeersRequest, PriceOverrideRequest, ResearchDraftPatchRequest
 from ..valuation import run_valuation
 from ..valuation.assumptions import SPECIAL_PROFILES
 
@@ -411,6 +411,14 @@ def generate_sec_research_draft(ticker: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LLMProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.patch("/company/{ticker}/research-drafts/{draft_id}")
+def patch_research_draft(ticker: str, draft_id: int, payload: ResearchDraftPatchRequest) -> dict[str, Any]:
+    try:
+        return update_research_draft(ticker, draft_id, status=payload.status, draft=payload.draft)
+    except LLMProviderError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.put("/company/{ticker}/peers")

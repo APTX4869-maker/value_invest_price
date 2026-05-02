@@ -262,6 +262,35 @@ def list_research_drafts(ticker: str) -> list[dict[str, Any]]:
     return [serialize_research_draft(row_to_dict(row)) for row in rows]
 
 
+def update_research_draft(
+    ticker: str,
+    draft_id: int,
+    status: str | None = None,
+    draft: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    allowed_statuses = {"pending_confirmation", "confirmed", "edited", "rejected"}
+    with connect() as conn:
+        existing = conn.execute(
+            "SELECT * FROM research_drafts WHERE id = ? AND ticker = ?",
+            (draft_id, ticker.upper()),
+        ).fetchone()
+        if not existing:
+            raise LLMProviderError("研究初稿不存在。")
+        next_status = status or existing["status"]
+        if next_status not in allowed_statuses:
+            raise LLMProviderError("研究初稿状态无效。")
+        next_draft = normalize_research_draft(draft) if draft is not None else loads(existing["draft_json"], {})
+        conn.execute(
+            """
+            UPDATE research_drafts
+            SET status = ?, draft_json = ?, updated_at = ?
+            WHERE id = ? AND ticker = ?
+            """,
+            (next_status, dumps(next_draft), now_iso(), draft_id, ticker.upper()),
+        )
+    return get_research_draft(draft_id)
+
+
 def serialize_research_draft(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row["id"],

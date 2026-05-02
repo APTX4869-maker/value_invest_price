@@ -1,6 +1,6 @@
 import backend.db as db_module
 from backend.db import init_db
-from backend.llm_research import generate_company_research_draft, list_research_drafts, parse_json_content, truthy
+from backend.llm_research import generate_company_research_draft, list_research_drafts, parse_json_content, truthy, update_research_draft
 
 
 def _use_temp_db(tmp_path, monkeypatch):
@@ -57,3 +57,7 @@ def test_generate_company_research_draft_saves_pending_draft(tmp_path, monkeypat
     assert draft["status"] == "pending_confirmation"
     assert draft["draft"]["business_model"] == "通过广告和云业务赚钱。"
     assert list_research_drafts("GOOG")[0]["source_accessions"] == ["0001"]
+
+    confirmed = update_research_draft("GOOG", draft["id"], status="confirmed")
+
+    assert confirmed["status"] == "confirmed"

@@ -54,7 +54,7 @@ function DraftList({ title, items = [] }) {
   );
 }
 
-export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, researchDrafts = [], snapshots = [], peerComparison, setPage, refreshCompany, refreshSecPackage, generateSecDraft, savePriceOverride }) {
+export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, researchDrafts = [], snapshots = [], peerComparison, setPage, refreshCompany, refreshSecPackage, generateSecDraft, updateResearchDraft, savePriceOverride }) {
   const [priceDraft, setPriceDraft] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const company = companyData?.company;
@@ -73,7 +73,8 @@ export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, rese
   const watchPoints = valuation?.plain_language?.watch || valuation?.data_quality?.warnings || [];
   const memoConclusion = memo?.conclusion || "不确定";
   const secPackages = secPackage?.packages || [];
-  const latestDraft = researchDrafts[0]?.draft || null;
+  const latestDraftItem = researchDrafts[0] || null;
+  const latestDraft = latestDraftItem?.draft || null;
 
   return (
     <section className="page-section dossier-page">
@@ -251,10 +252,14 @@ export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, rese
             <article className="panel ai-draft-panel">
               <div className="panel-heading">
                 <div>
-                  <h3>AI 初稿 · 待确认</h3>
+                  <h3>AI 初稿 · {latestDraftItem.status === "confirmed" ? "已确认" : latestDraftItem.status === "rejected" ? "已驳回" : "待确认"}</h3>
                   <p className="muted">只基于已提取的 SEC 证据生成。确认前不要把它当作最终结论。</p>
                 </div>
-                <Badge tone="warn">pending</Badge>
+                <div className="draft-actions">
+                  <Badge tone={latestDraftItem.status === "confirmed" ? "good" : latestDraftItem.status === "rejected" ? "neutral" : "warn"}>{latestDraftItem.status}</Badge>
+                  <button className="ghost" onClick={() => updateResearchDraft(latestDraftItem.id, { status: "confirmed" })}>确认</button>
+                  <button className="danger" onClick={() => updateResearchDraft(latestDraftItem.id, { status: "rejected" })}>驳回</button>
+                </div>
               </div>
               <div className="ai-draft-grid">
                 <div>
