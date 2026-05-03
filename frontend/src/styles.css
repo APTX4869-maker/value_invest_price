@@ -2062,6 +2062,7 @@ pre {
   border-radius: 8px;
   background: #fffef9;
   padding: 14px;
+  scroll-margin-top: 18px;
 }
 
 .sec-section summary {
@@ -2206,6 +2207,19 @@ pre {
 
 .ai-citation-panel small {
   color: var(--green);
+}
+
+.citation-jump {
+  display: inline-flex;
+  margin-top: 4px;
+  color: var(--teal);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.citation-jump:hover {
+  text-decoration: underline;
 }
 
 .memo-layout {

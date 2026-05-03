@@ -89,6 +89,48 @@ function formToDraft(form, original = {}) {
   };
 }
 
+function secSectionId(accession, sectionKey) {
+  return `sec-${String(accession || "").replace(/[^a-zA-Z0-9]/g, "")}-${sectionKey}`;
+}
+
+const SECTION_ALIASES = {
+  business: ["business", "item 1"],
+  risk_factors: ["risk factors", "item 1a", "risk"],
+  mda: ["md&a", "mda", "management discussion", "item 7"],
+  quarterly_mda: ["md&a", "mda", "management discussion", "item 2"],
+};
+
+function normalizeCitationText(value) {
+  return String(value || "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function findCitationTarget(citation, packages) {
+  const sourceText = normalizeCitationText(`${citation?.source || ""} ${citation?.claim || ""}`);
+  if (!sourceText) return null;
+  let best = null;
+  for (const packageItem of packages) {
+    const filing = packageItem.filing || {};
+    for (const section of packageItem.sections || []) {
+      if (section.status !== "found") continue;
+      const title = normalizeCitationText(section.title);
+      const aliases = (SECTION_ALIASES[section.key] || []).map(normalizeCitationText);
+      const hasTitle = title && (sourceText.includes(title) || title.includes(sourceText));
+      const hasAlias = aliases.some((alias) => alias && sourceText.includes(alias));
+      const formHit = filing.form && sourceText.includes(normalizeCitationText(filing.form));
+      const accessionHit = filing.accession_no && sourceText.includes(normalizeCitationText(filing.accession_no));
+      const score = (hasTitle ? 6 : 0) + (hasAlias ? 4 : 0) + (formHit ? 1 : 0) + (accessionHit ? 2 : 0);
+      if (score > (best?.score || 0)) {
+        best = {
+          score,
+          id: secSectionId(filing.accession_no, section.key),
+          label: `${filing.form} · ${section.title}`,
+        };
+      }
+    }
+  }
+  return best?.score >= 4 ? best : null;
+}
+
 export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, researchDrafts = [], snapshots = [], peerComparison, setPage, refreshCompany, refreshSecPackage, generateSecDraft, updateResearchDraft, savePriceOverride }) {
   const [priceDraft, setPriceDraft] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
@@ -351,12 +393,16 @@ export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, rese
                   <strong>引用线索</strong>
                   {latestDraft.citations?.length ? (
                     <ul>
-                      {latestDraft.citations.slice(0, 8).map((citation, index) => (
-                        <li key={`citation-${index}`}>
-                          <span>{citation.claim || "研究结论"}</span>
-                          <small>{citation.source || "来源待确认"}</small>
-                        </li>
-                      ))}
+                      {latestDraft.citations.slice(0, 8).map((citation, index) => {
+                        const target = findCitationTarget(citation, secPackages);
+                        return (
+                          <li key={`citation-${index}`}>
+                            <span>{citation.claim || "研究结论"}</span>
+                            <small>{citation.source || "来源待确认"}</small>
+                            {target ? <a className="citation-jump" href={`#${target.id}`}>跳到证据：{target.label}</a> : null}
+                          </li>
+                        );
+                      })}
                     </ul>
                   ) : (
                     <p>模型没有返回结构化引用，确认前需要人工复核 SEC 证据。</p>
@@ -386,7 +432,7 @@ export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, rese
                   </div>
                   <div className="sec-section-grid">
                     {(packageItem.sections || []).map((section) => (
-                      <details className="sec-section" key={`${packageItem.filing.accession_no}-${section.key}`} open={section.status === "found"}>
+                      <details id={secSectionId(packageItem.filing.accession_no, section.key)} className="sec-section" key={`${packageItem.filing.accession_no}-${section.key}`} open={section.status === "found"}>
                         <summary>
                           <span>{section.title}</span>
                           <Badge tone={section.status === "found" ? "good" : "neutral"}>{section.status === "found" ? `${section.word_count} words` : "未提取"}</Badge>
