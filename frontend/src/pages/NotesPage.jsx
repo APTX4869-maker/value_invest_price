@@ -81,6 +81,12 @@ export function NotesPage({ ticker, note, memo, memoHistory = [], saveMemo }) {
     });
   }
 
+  function loadVersion(version) {
+    if (!version?.memo) return;
+    setDraft(normalizeMemo(version.memo, null));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   return (
     <section className="page-section">
       <div className="reading-header">
@@ -204,6 +210,10 @@ export function NotesPage({ ticker, note, memo, memoHistory = [], saveMemo }) {
                       ))}
                     </select>
                   </label>
+                </div>
+                <div className="memo-compare-actions">
+                  <button className="ghost" type="button" onClick={() => loadVersion(compareLeft)}>载入 A 到编辑区</button>
+                  <button className="ghost" type="button" onClick={() => loadVersion(compareRight)}>载入 B 到编辑区</button>
                 </div>
                 <div className="memo-diff-list">
                   {changedRows.length ? changedRows.map((row) => (

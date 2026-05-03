@@ -2351,6 +2351,12 @@ pre {
   font-weight: 700;
 }
 
+.memo-compare-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .memo-diff-list {
   display: grid;
   gap: 10px;
