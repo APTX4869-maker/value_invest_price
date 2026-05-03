@@ -2110,6 +2110,49 @@ pre {
   justify-content: flex-end;
 }
 
+.ai-citation-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.35fr) minmax(0, 1fr);
+  gap: 12px;
+  border-top: 1px solid #ead6a8;
+  padding-top: 14px;
+}
+
+.ai-citation-panel > div {
+  border: 1px solid #ead6a8;
+  border-radius: 8px;
+  background: #fffef9;
+  padding: 14px;
+}
+
+.ai-citation-panel strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--ink);
+}
+
+.ai-citation-panel p,
+.ai-citation-panel li {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.ai-citation-panel ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.ai-citation-panel span,
+.ai-citation-panel small {
+  display: block;
+}
+
+.ai-citation-panel small {
+  color: var(--green);
+}
+
 .memo-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(330px, 0.38fr);
@@ -2322,6 +2365,7 @@ pre {
   .dossier-card-grid,
   .dossier-action-panel,
   .sec-evidence-intro,
+  .ai-citation-panel,
   .memo-layout,
   .memo-form,
   .decision-panel,

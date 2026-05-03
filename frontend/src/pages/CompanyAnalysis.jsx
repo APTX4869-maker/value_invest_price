@@ -342,6 +342,27 @@ export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, rese
                   <DraftList title="继续验证" items={latestDraft.follow_up_questions} />
                 </div>
               )}
+              <div className="ai-citation-panel">
+                <div>
+                  <strong>来源文件</strong>
+                  <p>{latestDraftItem.source_accessions?.length ? latestDraftItem.source_accessions.join(" / ") : "未记录 accession"}</p>
+                </div>
+                <div>
+                  <strong>引用线索</strong>
+                  {latestDraft.citations?.length ? (
+                    <ul>
+                      {latestDraft.citations.slice(0, 8).map((citation, index) => (
+                        <li key={`citation-${index}`}>
+                          <span>{citation.claim || "研究结论"}</span>
+                          <small>{citation.source || "来源待确认"}</small>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>模型没有返回结构化引用，确认前需要人工复核 SEC 证据。</p>
+                  )}
+                </div>
+              </div>
             </article>
           ) : null}
 
