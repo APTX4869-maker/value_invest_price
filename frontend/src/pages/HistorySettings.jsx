@@ -1,8 +1,18 @@
 import { useEffect, useState } from "react";
-import { Save, Search, Settings } from "lucide-react";
+import { Bot, KeyRound, Save, Search, Settings } from "lucide-react";
 import { Badge } from "../components/Badge";
 import { formatMoney } from "../utils/formatters";
 import { parseSetting } from "../utils/settings";
+
+const LLM_SETTING_KEYS = new Set([
+  "llm_enabled",
+  "llm_provider_type",
+  "llm_base_url",
+  "llm_api_key",
+  "llm_model",
+  "llm_max_tokens",
+  "llm_temperature",
+]);
 
 export function HistorySettings({ ticker, snapshots, settings, saveSettings }) {
   const [draft, setDraft] = useState({});
@@ -21,6 +31,13 @@ export function HistorySettings({ ticker, snapshots, settings, saveSettings }) {
   const filteredSnapshots = normalizedSnapshotQuery
     ? snapshots.filter((snap) => snapshotSearchText(snap).includes(normalizedSnapshotQuery))
     : snapshots;
+  const marketSettings = Object.entries(draft).filter(([key]) => !LLM_SETTING_KEYS.has(key));
+  const llmEnabled = Boolean(draft.llm_enabled);
+  const llmReady = llmEnabled && draft.llm_api_key && draft.llm_model;
+
+  function updateSetting(key, value) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
 
   return (
     <section className="page-section">
@@ -111,18 +128,100 @@ export function HistorySettings({ ticker, snapshots, settings, saveSettings }) {
             </div>
           ) : null}
         </div>
-        <div className="panel">
-          <h3><Settings size={18} /> 数据源设置</h3>
-          <p className="plain-callout">
-            `alpha_vantage_api_key` 用于 Yahoo 行情失败时兜底抓股价；`fred_api_key` 用于自动更新 10 年期美债。没填也能用，只是会退回本地默认值。
-          </p>
-          {Object.entries(draft).map(([key, value]) => (
-            <label className="setting-row" key={key}>
-              <span>{key}</span>
-              <input value={String(value)} onChange={(event) => setDraft({ ...draft, [key]: parseSetting(event.target.value) })} />
+        <div className="settings-stack">
+          <div className="panel ai-settings-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">AI research</p>
+                <h3><Bot size={18} /> AI 研究助手</h3>
+                <p>SEC 摘录会发送到你配置的 LLM 服务；AI 输出必须人工确认才写入备忘录。</p>
+              </div>
+              <Badge tone={llmReady ? "good" : "warn"}>{llmReady ? "已配置" : "待配置"}</Badge>
+            </div>
+            <label className="toggle-row">
+              <span>
+                <strong>启用 AI 研究初稿</strong>
+                <small>关闭后仍可查看 SEC 证据和手写研究笔记。</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={llmEnabled}
+                onChange={(event) => updateSetting("llm_enabled", event.target.checked)}
+              />
             </label>
-          ))}
-          <button onClick={() => saveSettings(draft)}><Save size={16} />保存设置</button>
+            <div className="setting-grid">
+              <label className="setting-row">
+                <span>Provider</span>
+                <select
+                  value={draft.llm_provider_type || "openai_compatible"}
+                  onChange={(event) => updateSetting("llm_provider_type", event.target.value)}
+                >
+                  <option value="openai_compatible">OpenAI compatible</option>
+                </select>
+              </label>
+              <label className="setting-row">
+                <span>Base URL</span>
+                <input
+                  value={draft.llm_base_url || ""}
+                  onChange={(event) => updateSetting("llm_base_url", event.target.value)}
+                  placeholder="https://api.openai.com/v1"
+                />
+              </label>
+              <label className="setting-row full">
+                <span><KeyRound size={15} /> API key</span>
+                <input
+                  type="password"
+                  value={draft.llm_api_key || ""}
+                  onChange={(event) => updateSetting("llm_api_key", event.target.value)}
+                  placeholder="保存在本地 SQLite"
+                />
+              </label>
+              <label className="setting-row">
+                <span>Model</span>
+                <input
+                  value={draft.llm_model || ""}
+                  onChange={(event) => updateSetting("llm_model", event.target.value)}
+                  placeholder="例如 gpt-4.1 或本地兼容模型"
+                />
+              </label>
+              <label className="setting-row">
+                <span>Max tokens</span>
+                <input
+                  type="number"
+                  min="1000"
+                  step="500"
+                  value={draft.llm_max_tokens ?? 4000}
+                  onChange={(event) => updateSetting("llm_max_tokens", Number(event.target.value))}
+                />
+              </label>
+              <label className="setting-row">
+                <span>Temperature</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  value={draft.llm_temperature ?? 0.2}
+                  onChange={(event) => updateSetting("llm_temperature", Number(event.target.value))}
+                />
+              </label>
+            </div>
+            <button onClick={() => saveSettings(draft)}><Save size={16} />保存 AI 设置</button>
+          </div>
+
+          <div className="panel">
+            <h3><Settings size={18} /> 市场数据源设置</h3>
+            <p className="plain-callout">
+              `alpha_vantage_api_key` 用于 Yahoo 行情失败时兜底抓股价；`fred_api_key` 用于自动更新 10 年期美债。没填也能用，只是会退回本地默认值。
+            </p>
+            {marketSettings.map(([key, value]) => (
+              <label className="setting-row" key={key}>
+                <span>{key}</span>
+                <input value={String(value)} onChange={(event) => setDraft({ ...draft, [key]: parseSetting(event.target.value) })} />
+              </label>
+            ))}
+            <button onClick={() => saveSettings(draft)}><Save size={16} />保存设置</button>
+          </div>
         </div>
       </div>
     </section>

@@ -1511,6 +1511,61 @@ pre {
   gap: 7px;
 }
 
+.settings-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.ai-settings-panel {
+  display: grid;
+  gap: 16px;
+  border-color: #d6c18f;
+  background: #fffaf0;
+}
+
+.setting-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.setting-row.full {
+  grid-column: 1 / -1;
+}
+
+.setting-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #ead6a8;
+  border-radius: 8px;
+  background: #fffef9;
+  padding: 14px;
+}
+
+.toggle-row span {
+  display: grid;
+  gap: 4px;
+}
+
+.toggle-row small {
+  color: var(--muted);
+}
+
+.toggle-row input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--green);
+  flex: 0 0 auto;
+}
+
 .peer-row {
   display: flex;
   flex-wrap: wrap;
@@ -2369,6 +2424,7 @@ pre {
   .memo-layout,
   .memo-form,
   .decision-panel,
+  .setting-grid,
   .simple-section-heading,
   .model-table-head,
   .model-table-row,
