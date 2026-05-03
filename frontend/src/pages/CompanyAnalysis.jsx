@@ -54,9 +54,46 @@ function DraftList({ title, items = [] }) {
   );
 }
 
+function DraftTextarea({ label, value, onChange }) {
+  return (
+    <label>
+      <span>{label}</span>
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder="每行一条" />
+    </label>
+  );
+}
+
+function draftToForm(draft = {}) {
+  return {
+    business_model: draft.business_model || "",
+    growth_drivers: (draft.growth_drivers || []).join("\n"),
+    moat_sources: (draft.moat_sources || []).join("\n"),
+    competition: (draft.competition || []).join("\n"),
+    key_risks: (draft.key_risks || []).join("\n"),
+    financial_quality_notes: (draft.financial_quality_notes || []).join("\n"),
+    follow_up_questions: (draft.follow_up_questions || []).join("\n"),
+  };
+}
+
+function formToDraft(form, original = {}) {
+  const lines = (text) => String(text || "").split("\n").map((item) => item.trim()).filter(Boolean);
+  return {
+    ...original,
+    business_model: form.business_model,
+    growth_drivers: lines(form.growth_drivers),
+    moat_sources: lines(form.moat_sources),
+    competition: lines(form.competition),
+    key_risks: lines(form.key_risks),
+    financial_quality_notes: lines(form.financial_quality_notes),
+    follow_up_questions: lines(form.follow_up_questions),
+  };
+}
+
 export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, researchDrafts = [], snapshots = [], peerComparison, setPage, refreshCompany, refreshSecPackage, generateSecDraft, updateResearchDraft, savePriceOverride }) {
   const [priceDraft, setPriceDraft] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
+  const [editingDraft, setEditingDraft] = useState(false);
+  const [draftForm, setDraftForm] = useState(draftToForm());
   const company = companyData?.company;
   const facts = companyData?.facts;
   const valuation = companyData?.valuation;
@@ -64,6 +101,11 @@ export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, rese
   useEffect(() => {
     setPriceDraft(facts?.price_is_overridden && facts?.price ? String(facts.price) : "");
   }, [facts?.price, facts?.price_is_overridden]);
+
+  useEffect(() => {
+    setEditingDraft(false);
+    setDraftForm(draftToForm(researchDrafts[0]?.draft || {}));
+  }, [researchDrafts[0]?.id]);
 
   if (!company) {
     return <EmptyState title="还没有公司档案" text="请先在研究队列选择公司，或者从发现雷达加入一个候选。"/>;
@@ -266,21 +308,40 @@ export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, rese
                 </div>
                 <div className="draft-actions">
                   <Badge tone={latestDraftItem.status === "confirmed" ? "good" : latestDraftItem.status === "rejected" ? "neutral" : "warn"}>{latestDraftItem.status}</Badge>
+                  <button className="ghost" onClick={() => { setDraftForm(draftToForm(latestDraft)); setEditingDraft(!editingDraft); }}>{editingDraft ? "取消编辑" : "编辑"}</button>
                   <button className="ghost" onClick={() => updateResearchDraft(latestDraftItem.id, { status: "confirmed" })}>确认</button>
                   <button className="danger" onClick={() => updateResearchDraft(latestDraftItem.id, { status: "rejected" })}>驳回</button>
                 </div>
               </div>
-              <div className="ai-draft-grid">
-                <div>
-                  <strong>业务模式</strong>
-                  <p>{latestDraft.business_model || "待确认"}</p>
+              {editingDraft ? (
+                <div className="ai-draft-editor">
+                  <label className="full">
+                    <span>业务模式</span>
+                    <textarea value={draftForm.business_model} onChange={(event) => setDraftForm({ ...draftForm, business_model: event.target.value })} />
+                  </label>
+                  <DraftTextarea label="增长驱动" value={draftForm.growth_drivers} onChange={(value) => setDraftForm({ ...draftForm, growth_drivers: value })} />
+                  <DraftTextarea label="护城河来源" value={draftForm.moat_sources} onChange={(value) => setDraftForm({ ...draftForm, moat_sources: value })} />
+                  <DraftTextarea label="竞争格局" value={draftForm.competition} onChange={(value) => setDraftForm({ ...draftForm, competition: value })} />
+                  <DraftTextarea label="关键风险" value={draftForm.key_risks} onChange={(value) => setDraftForm({ ...draftForm, key_risks: value })} />
+                  <DraftTextarea label="财务质量观察" value={draftForm.financial_quality_notes} onChange={(value) => setDraftForm({ ...draftForm, financial_quality_notes: value })} />
+                  <DraftTextarea label="继续验证" value={draftForm.follow_up_questions} onChange={(value) => setDraftForm({ ...draftForm, follow_up_questions: value })} />
+                  <div className="draft-editor-actions">
+                    <button onClick={() => { updateResearchDraft(latestDraftItem.id, { status: "edited", draft: formToDraft(draftForm, latestDraft) }); setEditingDraft(false); }}>保存编辑</button>
+                  </div>
                 </div>
-                <DraftList title="增长驱动" items={latestDraft.growth_drivers} />
-                <DraftList title="护城河来源" items={latestDraft.moat_sources} />
-                <DraftList title="竞争格局" items={latestDraft.competition} />
-                <DraftList title="关键风险" items={latestDraft.key_risks} />
-                <DraftList title="继续验证" items={latestDraft.follow_up_questions} />
-              </div>
+              ) : (
+                <div className="ai-draft-grid">
+                  <div>
+                    <strong>业务模式</strong>
+                    <p>{latestDraft.business_model || "待确认"}</p>
+                  </div>
+                  <DraftList title="增长驱动" items={latestDraft.growth_drivers} />
+                  <DraftList title="护城河来源" items={latestDraft.moat_sources} />
+                  <DraftList title="竞争格局" items={latestDraft.competition} />
+                  <DraftList title="关键风险" items={latestDraft.key_risks} />
+                  <DraftList title="继续验证" items={latestDraft.follow_up_questions} />
+                </div>
+              )}
             </article>
           ) : null}
 

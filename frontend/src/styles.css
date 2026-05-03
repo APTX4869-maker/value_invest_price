@@ -2078,6 +2078,38 @@ pre {
   padding-left: 18px;
 }
 
+.ai-draft-editor {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.ai-draft-editor label {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-draft-editor label.full,
+.draft-editor-actions {
+  grid-column: 1 / -1;
+}
+
+.ai-draft-editor span {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.ai-draft-editor textarea {
+  min-height: 110px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.draft-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .memo-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(330px, 0.38fr);
