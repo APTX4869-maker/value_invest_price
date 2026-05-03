@@ -288,7 +288,123 @@ def update_research_draft(
             """,
             (next_status, dumps(next_draft), now_iso(), draft_id, ticker.upper()),
         )
+    if next_status == "confirmed":
+        apply_confirmed_research_draft(ticker, next_draft)
     return get_research_draft(draft_id)
+
+
+def apply_confirmed_research_draft(ticker: str, draft: dict[str, Any]) -> dict[str, Any]:
+    ticker = ticker.upper()
+    normalized = normalize_research_draft(draft)
+    ts = now_iso()
+    with connect() as conn:
+        company = conn.execute("SELECT * FROM companies WHERE ticker = ?", (ticker,)).fetchone()
+        if company:
+            segments = loads(company["segments_json"], [])
+            if not segments and normalized["segments"]:
+                segments = [
+                    {
+                        "name": segment,
+                        "share": 0,
+                        "description": "来自已确认 SEC AI 初稿，收入占比待人工补充。",
+                    }
+                    for segment in normalized["segments"]
+                ]
+            profile_source = company["profile_source"] or ""
+            if "SEC AI 已确认初稿" not in profile_source:
+                profile_source = f"{profile_source} + SEC AI 已确认初稿".strip(" +")
+            conn.execute(
+                """
+                UPDATE companies
+                SET research_summary_json = ?,
+                    business_overview = CASE
+                        WHEN business_overview IS NULL OR business_overview = '' THEN ?
+                        ELSE business_overview
+                    END,
+                    segments_json = ?,
+                    profile_source = ?,
+                    updated_at = ?
+                WHERE ticker = ?
+                """,
+                (
+                    dumps(normalized),
+                    normalized["business_model"],
+                    dumps(segments),
+                    profile_source,
+                    ts,
+                    ticker,
+                ),
+            )
+        _merge_confirmed_draft_into_memo(conn, ticker, normalized, ts)
+    return {"ticker": ticker, "applied": True, "updated_at": ts}
+
+
+def _merge_confirmed_draft_into_memo(conn, ticker: str, draft: dict[str, Any], ts: str) -> None:
+    row = conn.execute("SELECT * FROM investment_memos WHERE ticker = ?", (ticker,)).fetchone()
+    if row:
+        thesis = loads(row["thesis_json"], [])
+        review_triggers = loads(row["review_triggers_json"], [])
+        business_moat = row["business_moat"] or _business_moat_text(draft)
+        financial_quality = row["financial_quality"] or "\n".join(draft["financial_quality_notes"])
+        bear_case = row["bear_case"] or "\n".join(draft["key_risks"])
+        attention_reason = row["attention_reason"] or "来自已确认 SEC AI 初稿，需结合估值和人工研究继续复核。"
+        if not thesis:
+            thesis = draft["growth_drivers"][:5]
+        if not review_triggers:
+            review_triggers = draft["follow_up_questions"][:5]
+        conn.execute(
+            """
+            UPDATE investment_memos
+            SET attention_reason = ?,
+                thesis_json = ?,
+                business_moat = ?,
+                financial_quality = ?,
+                bear_case = ?,
+                review_triggers_json = ?,
+                updated_at = ?
+            WHERE ticker = ?
+            """,
+            (
+                attention_reason,
+                dumps(thesis),
+                business_moat,
+                financial_quality,
+                bear_case,
+                dumps(review_triggers),
+                ts,
+                ticker,
+            ),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO investment_memos
+            (ticker, conclusion, attention_reason, thesis_json, business_moat,
+             financial_quality, valuation_view, bear_case, review_triggers_json,
+             free_notes, snapshot_id, created_at, updated_at)
+            VALUES (?, '不确定', ?, ?, ?, ?, '', ?, ?, '', NULL, ?, ?)
+            """,
+            (
+                ticker,
+                "来自已确认 SEC AI 初稿，需结合估值和人工研究继续复核。",
+                dumps(draft["growth_drivers"][:5]),
+                _business_moat_text(draft),
+                "\n".join(draft["financial_quality_notes"]),
+                "\n".join(draft["key_risks"]),
+                dumps(draft["follow_up_questions"][:5]),
+                ts,
+                ts,
+            ),
+        )
+
+
+def _business_moat_text(draft: dict[str, Any]) -> str:
+    parts = [draft["business_model"]]
+    if draft["moat_sources"]:
+        parts.append("护城河来源：\n" + "\n".join(f"- {item}" for item in draft["moat_sources"]))
+    if draft["competition"]:
+        parts.append("竞争格局：\n" + "\n".join(f"- {item}" for item in draft["competition"]))
+    return "\n\n".join(part for part in parts if part)
 
 
 def serialize_research_draft(row: dict[str, Any]) -> dict[str, Any]:

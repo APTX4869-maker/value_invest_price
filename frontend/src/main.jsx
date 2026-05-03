@@ -208,6 +208,9 @@ function App() {
         body: JSON.stringify(patch),
       });
       setResearchDrafts((current) => current.map((item) => (item.id === draftId ? updated : item)));
+      if (patch.status === "confirmed") {
+        await loadAll(normalizedTicker);
+      }
       notify("AI 初稿状态已更新。", "success", "初稿已更新");
     } catch (error) {
       notify(error.message, "error", "初稿更新失败");

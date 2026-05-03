@@ -72,6 +72,7 @@ export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, rese
   const segments = company.segments || [];
   const watchPoints = valuation?.plain_language?.watch || valuation?.data_quality?.warnings || [];
   const memoConclusion = memo?.conclusion || "不确定";
+  const confirmedSummary = company.research_summary || {};
   const secPackages = secPackage?.packages || [];
   const latestDraftItem = researchDrafts[0] || null;
   const latestDraft = latestDraftItem?.draft || null;
@@ -128,17 +129,19 @@ export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, rese
         <>
           <div className="dossier-card-grid">
             <DossierCard title="业务与护城河">
-              <p>{company.business_overview || "待补业务模式、收入结构和护城河证据。"}</p>
+              <p>{confirmedSummary.business_model || company.business_overview || "待补业务模式、收入结构和护城河证据。"}</p>
             </DossierCard>
             <DossierCard title="财务质量">
               <p>
-                {facts
+                {confirmedSummary.financial_quality_notes?.length
+                  ? confirmedSummary.financial_quality_notes.join(" / ")
+                  : facts
                   ? `营收 ${formatMoney(facts.revenue)}，OCF ${formatMoney(facts.ocf)}，CAPEX ${formatMoney(facts.capex)}。`
                   : "待刷新财务数据。"}
               </p>
             </DossierCard>
             <DossierCard title="关键风险">
-              <p>{watchPoints.length ? watchPoints.join(" / ") : "待补竞争、监管、周期、技术替代和估值假设风险。"}</p>
+              <p>{confirmedSummary.key_risks?.length ? confirmedSummary.key_risks.join(" / ") : watchPoints.length ? watchPoints.join(" / ") : "待补竞争、监管、周期、技术替代和估值假设风险。"}</p>
             </DossierCard>
           </div>
           {valuation?.plain_language?.watch?.length ? (
@@ -154,7 +157,13 @@ export function CompanyAnalysis({ companyData, queueItem, memo, secPackage, rese
         <div className="two-column">
           <div className="panel">
             <h3>业务介绍</h3>
-            <p className="business-copy">{company.business_overview || "这家公司还没有详细业务介绍。后续可以通过年报解析或手动编辑补充。"}</p>
+            <p className="business-copy">{confirmedSummary.business_model || company.business_overview || "这家公司还没有详细业务介绍。后续可以通过年报解析或手动编辑补充。"}</p>
+            {confirmedSummary.moat_sources?.length ? (
+              <div className="confirmed-summary-list">
+                <strong>已确认护城河线索</strong>
+                <ul>{confirmedSummary.moat_sources.map((item, index) => <li key={`moat-${index}`}>{item}</li>)}</ul>
+              </div>
+            ) : null}
           </div>
           <div className="panel">
             <h3>营收结构</h3>

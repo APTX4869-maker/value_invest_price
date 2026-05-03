@@ -47,6 +47,7 @@ def init_db() -> None:
                 company_type TEXT DEFAULT '稳定复利公司',
                 segments_json TEXT DEFAULT '[]',
                 peers_json TEXT DEFAULT '[]',
+                research_summary_json TEXT DEFAULT '{}',
                 profile_source TEXT DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -278,6 +279,7 @@ def migrate_db(conn: sqlite3.Connection) -> None:
         "description": "TEXT DEFAULT ''",
         "business_overview": "TEXT DEFAULT ''",
         "segments_json": "TEXT DEFAULT '[]'",
+        "research_summary_json": "TEXT DEFAULT '{}'",
         "profile_source": "TEXT DEFAULT ''",
     }
     for name, definition in company_additions.items():
@@ -333,8 +335,8 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
         """
         INSERT OR IGNORE INTO companies
         (ticker, name, industry, sector, description, business_overview, company_type,
-         segments_json, peers_json, profile_source, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         segments_json, peers_json, research_summary_json, profile_source, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)
         """,
         (
             "GOOG",

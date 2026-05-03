@@ -752,6 +752,25 @@ mark {
   gap: 14px;
 }
 
+.confirmed-summary-list {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.confirmed-summary-list strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--green);
+}
+
+.confirmed-summary-list ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
 .segment-row {
   display: grid;
   gap: 7px;

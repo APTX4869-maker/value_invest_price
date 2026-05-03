@@ -16,6 +16,7 @@ def get_setting(key: str, default: Any) -> Any:
 def serialize_company(row: dict[str, Any]) -> dict[str, Any]:
     row["peers"] = loads(row.pop("peers_json", "[]"), [])
     row["segments"] = loads(row.pop("segments_json", "[]"), [])
+    row["research_summary"] = loads(row.pop("research_summary_json", "{}"), {})
     return row
 
 

@@ -85,8 +85,8 @@ def add_company(payload: AddCompanyRequest) -> dict[str, Any]:
             """
             INSERT OR IGNORE INTO companies
             (ticker, name, industry, sector, description, business_overview,
-             company_type, segments_json, peers_json, profile_source, created_at, updated_at)
-            VALUES (?, ?, '', '', '', '', '稳定复利公司', '[]', '[]', '', ?, ?)
+             company_type, segments_json, peers_json, research_summary_json, profile_source, created_at, updated_at)
+            VALUES (?, ?, '', '', '', '', '稳定复利公司', '[]', '[]', '{}', '', ?, ?)
             """,
             (ticker, payload.name or ticker, ts, ts),
         )
