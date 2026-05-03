@@ -53,10 +53,21 @@ function DynamicList({ label, items, setItems, placeholder }) {
 
 export function NotesPage({ ticker, note, memo, memoHistory = [], saveMemo }) {
   const [draft, setDraft] = useState(() => normalizeMemo(memo, note));
+  const [compareLeftId, setCompareLeftId] = useState(null);
+  const [compareRightId, setCompareRightId] = useState(null);
 
   useEffect(() => {
     setDraft(normalizeMemo(memo, note));
   }, [memo?.updated_at, note?.updated_at, ticker]);
+  useEffect(() => {
+    setCompareLeftId(memoHistory[1]?.id || memoHistory[0]?.id || null);
+    setCompareRightId(memoHistory[0]?.id || null);
+  }, [memoHistory]);
+
+  const compareLeft = memoHistory.find((version) => version.id === compareLeftId) || null;
+  const compareRight = memoHistory.find((version) => version.id === compareRightId) || null;
+  const diffRows = buildMemoDiffRows(compareLeft?.memo, compareRight?.memo);
+  const changedRows = diffRows.filter((row) => row.changed);
 
   function setField(key, value) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -172,6 +183,48 @@ export function NotesPage({ ticker, note, memo, memoHistory = [], saveMemo }) {
               <p>保存后会自动留下版本。</p>
             )}
           </section>
+          <section>
+            <strong>版本对比</strong>
+            {memoHistory.length >= 2 ? (
+              <div className="memo-version-compare">
+                <div className="memo-compare-selectors">
+                  <label>
+                    <span>对比 A</span>
+                    <select value={compareLeftId || ""} onChange={(event) => setCompareLeftId(Number(event.target.value))}>
+                      {memoHistory.map((version) => (
+                        <option key={version.id} value={version.id}>{formatVersionLabel(version)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>对比 B</span>
+                    <select value={compareRightId || ""} onChange={(event) => setCompareRightId(Number(event.target.value))}>
+                      {memoHistory.map((version) => (
+                        <option key={version.id} value={version.id}>{formatVersionLabel(version)}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="memo-diff-list">
+                  {changedRows.length ? changedRows.map((row) => (
+                    <div className="memo-diff-row" key={row.key}>
+                      <strong>{row.label}</strong>
+                      <div>
+                        <span>A</span>
+                        <p>{row.left || "空"}</p>
+                      </div>
+                      <div>
+                        <span>B</span>
+                        <p>{row.right || "空"}</p>
+                      </div>
+                    </div>
+                  )) : <p>这两个版本的结构化字段没有变化。</p>}
+                </div>
+              </div>
+            ) : (
+              <p>至少保存两个版本后，可以对比判断变化。</p>
+            )}
+          </section>
         </aside>
       </div>
     </section>
@@ -181,4 +234,36 @@ export function NotesPage({ ticker, note, memo, memoHistory = [], saveMemo }) {
 function memoSourceLabel(source) {
   if (source === "ai_confirmed_draft") return "AI 初稿确认";
   return "手动保存";
+}
+
+function formatVersionLabel(version) {
+  return `${memoSourceLabel(version.source)} · ${new Date(version.created_at).toLocaleString()}`;
+}
+
+const MEMO_DIFF_FIELDS = [
+  ["conclusion", "当前结论", "text"],
+  ["attention_reason", "为什么关注", "text"],
+  ["thesis", "核心投资假设", "list"],
+  ["business_moat", "业务与护城河", "text"],
+  ["financial_quality", "财务质量", "text"],
+  ["valuation_view", "估值判断", "text"],
+  ["bear_case", "我可能错在哪里", "text"],
+  ["review_triggers", "复盘触发条件", "list"],
+  ["free_notes", "自由补充", "text"],
+];
+
+function buildMemoDiffRows(leftMemo, rightMemo) {
+  if (!leftMemo || !rightMemo) return [];
+  return MEMO_DIFF_FIELDS.map(([key, label, type]) => {
+    const left = normalizeDiffValue(leftMemo[key], type);
+    const right = normalizeDiffValue(rightMemo[key], type);
+    return { key, label, left, right, changed: left !== right };
+  });
+}
+
+function normalizeDiffValue(value, type) {
+  if (type === "list") {
+    return Array.isArray(value) ? value.filter(Boolean).join("\n") : "";
+  }
+  return String(value || "").trim();
 }

@@ -2316,6 +2316,62 @@ pre {
   margin: 6px 0 0;
 }
 
+.memo-version-compare {
+  display: grid;
+  gap: 12px;
+}
+
+.memo-compare-selectors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.memo-compare-selectors label {
+  display: grid;
+  gap: 6px;
+}
+
+.memo-compare-selectors span {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.memo-diff-list {
+  display: grid;
+  gap: 10px;
+}
+
+.memo-diff-row {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #ead6a8;
+  border-radius: 8px;
+  background: #fffaf0;
+  padding: 10px;
+}
+
+.memo-diff-row > strong {
+  color: var(--ink);
+}
+
+.memo-diff-row div {
+  display: grid;
+  gap: 4px;
+}
+
+.memo-diff-row span {
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.memo-diff-row p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 .current-peer-row td {
   background: #eef6f0;
 }
@@ -2461,6 +2517,7 @@ pre {
   .memo-form,
   .decision-panel,
   .setting-grid,
+  .memo-compare-selectors,
   .simple-section-heading,
   .model-table-head,
   .model-table-row,
