@@ -1,4 +1,4 @@
-import { Plus, Save, Trash2 } from "lucide-react";
+import { Clock3, Plus, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge } from "../components/Badge";
 
@@ -51,7 +51,7 @@ function DynamicList({ label, items, setItems, placeholder }) {
   );
 }
 
-export function NotesPage({ ticker, note, memo, saveMemo }) {
+export function NotesPage({ ticker, note, memo, memoHistory = [], saveMemo }) {
   const [draft, setDraft] = useState(() => normalizeMemo(memo, note));
 
   useEffect(() => {
@@ -156,8 +156,29 @@ export function NotesPage({ ticker, note, memo, saveMemo }) {
             <strong>复盘触发</strong>
             <ul>{draft.review_triggers.filter(Boolean).map((item, index) => <li key={index}>{item}</li>)}</ul>
           </section>
+          <section>
+            <strong><Clock3 size={15} /> 版本记录</strong>
+            {memoHistory.length ? (
+              <div className="memo-version-list">
+                {memoHistory.slice(0, 6).map((version) => (
+                  <div className="memo-version-row" key={version.id}>
+                    <span>{memoSourceLabel(version.source)}</span>
+                    <small>{new Date(version.created_at).toLocaleString()}</small>
+                    <p>{version.memo?.conclusion || "不确定"} · {version.memo?.attention_reason || "暂无关注理由"}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>保存后会自动留下版本。</p>
+            )}
+          </section>
         </aside>
       </div>
     </section>
   );
+}
+
+function memoSourceLabel(source) {
+  if (source === "ai_confirmed_draft") return "AI 初稿确认";
+  return "手动保存";
 }

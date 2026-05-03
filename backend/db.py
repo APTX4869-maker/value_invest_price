@@ -237,6 +237,14 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS investment_memo_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                source TEXT DEFAULT 'manual',
+                memo_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS sec_filings (
                 ticker TEXT NOT NULL,
                 accession_no TEXT NOT NULL,

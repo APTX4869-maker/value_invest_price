@@ -2236,6 +2236,12 @@ pre {
   font-weight: 700;
 }
 
+.memo-preview section > strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .memo-field textarea {
   min-height: 120px;
   resize: vertical;
@@ -2278,6 +2284,36 @@ pre {
 .memo-preview li {
   color: var(--muted);
   line-height: 1.6;
+}
+
+.memo-version-list {
+  display: grid;
+  gap: 10px;
+}
+
+.memo-version-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffef9;
+  padding: 10px;
+}
+
+.memo-version-row span,
+.memo-version-row small {
+  display: block;
+}
+
+.memo-version-row span {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.memo-version-row small {
+  color: var(--muted);
+}
+
+.memo-version-row p {
+  margin: 6px 0 0;
 }
 
 .current-peer-row td {

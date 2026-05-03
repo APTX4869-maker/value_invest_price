@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .db import connect, dumps, loads, now_iso, row_to_dict
+from .memo_history import record_memo_version
 
 
 class LLMConfigError(RuntimeError):
@@ -396,6 +397,7 @@ def _merge_confirmed_draft_into_memo(conn, ticker: str, draft: dict[str, Any], t
                 ts,
             ),
         )
+    record_memo_version(conn, ticker, "ai_confirmed_draft", ts)
 
 
 def _business_moat_text(draft: dict[str, Any]) -> str:

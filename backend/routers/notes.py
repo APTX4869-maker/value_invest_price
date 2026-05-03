@@ -4,8 +4,9 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from ..db import connect, dumps, loads, now_iso, row_to_dict
+from ..db import connect, dumps, now_iso, row_to_dict
 from ..dependencies import build_default_note
+from ..memo_history import list_memo_versions, record_memo_version, serialize_memo
 from ..schemas import InvestmentMemoRequest, NoteRequest
 
 
@@ -36,49 +37,18 @@ def put_note(ticker: str, payload: NoteRequest) -> dict[str, Any]:
     return dict(row)
 
 
-def _default_memo(ticker: str) -> dict[str, Any]:
-    return {
-        "ticker": ticker.upper(),
-        "conclusion": "不确定",
-        "attention_reason": "",
-        "thesis": [],
-        "business_moat": "",
-        "financial_quality": "",
-        "valuation_view": "",
-        "bear_case": "",
-        "review_triggers": [],
-        "free_notes": "",
-        "snapshot_id": None,
-        "created_at": None,
-        "updated_at": None,
-    }
-
-
-def _serialize_memo(row: dict[str, Any] | None, ticker: str) -> dict[str, Any]:
-    if not row:
-        return _default_memo(ticker)
-    return {
-        "ticker": row["ticker"],
-        "conclusion": row.get("conclusion") or "不确定",
-        "attention_reason": row.get("attention_reason") or "",
-        "thesis": loads(row.get("thesis_json"), []),
-        "business_moat": row.get("business_moat") or "",
-        "financial_quality": row.get("financial_quality") or "",
-        "valuation_view": row.get("valuation_view") or "",
-        "bear_case": row.get("bear_case") or "",
-        "review_triggers": loads(row.get("review_triggers_json"), []),
-        "free_notes": row.get("free_notes") or "",
-        "snapshot_id": row.get("snapshot_id"),
-        "created_at": row.get("created_at"),
-        "updated_at": row.get("updated_at"),
-    }
-
-
 @router.get("/{ticker}/memo")
 def get_memo(ticker: str) -> dict[str, Any]:
     with connect() as conn:
         row = conn.execute("SELECT * FROM investment_memos WHERE ticker = ?", (ticker.upper(),)).fetchone()
-    return _serialize_memo(row_to_dict(row), ticker)
+    return serialize_memo(row_to_dict(row), ticker)
+
+
+@router.get("/{ticker}/memo/history")
+def get_memo_history(ticker: str) -> list[dict[str, Any]]:
+    with connect() as conn:
+        versions = list_memo_versions(conn, ticker)
+    return versions
 
 
 @router.put("/{ticker}/memo")
@@ -122,5 +92,6 @@ def put_memo(ticker: str, payload: InvestmentMemoRequest) -> dict[str, Any]:
                 ts,
             ),
         )
+        record_memo_version(conn, ticker, "manual", ts)
         row = conn.execute("SELECT * FROM investment_memos WHERE ticker = ?", (ticker.upper(),)).fetchone()
-    return _serialize_memo(row_to_dict(row), ticker)
+    return serialize_memo(row_to_dict(row), ticker)

@@ -21,6 +21,7 @@ function App() {
   const [valuationResult, setValuationResult] = useState(null);
   const [note, setNote] = useState(null);
   const [memo, setMemo] = useState(null);
+  const [memoHistory, setMemoHistory] = useState([]);
   const [secPackage, setSecPackage] = useState(null);
   const [researchDrafts, setResearchDrafts] = useState([]);
   const [snapshots, setSnapshots] = useState([]);
@@ -48,12 +49,13 @@ function App() {
   async function loadAll(target = normalizedTicker) {
     setLoading(true);
     try {
-      const [watch, queue, company, noteData, memoData, secPackageData, draftData, snaps, peerSuggestionData, peerComparisonData, settingData] = await Promise.all([
+      const [watch, queue, company, noteData, memoData, memoHistoryData, secPackageData, draftData, snaps, peerSuggestionData, peerComparisonData, settingData] = await Promise.all([
         api("/api/watchlist"),
         api("/api/research-queue").catch(() => []),
         api(`/api/company/${target}`).catch(() => null),
         api(`/api/notes/${target}`).catch(() => null),
         api(`/api/notes/${target}/memo`).catch(() => null),
+        api(`/api/notes/${target}/memo/history`).catch(() => []),
         api(`/api/company/${target}/research-package`).catch(() => null),
         api(`/api/company/${target}/research-drafts`).catch(() => []),
         api(`/api/snapshots/${target}`).catch(() => []),
@@ -66,6 +68,7 @@ function App() {
       setCompanyData(company);
       setNote(noteData);
       setMemo(memoData);
+      setMemoHistory(memoHistoryData);
       setSecPackage(secPackageData);
       setResearchDrafts(draftData);
       setSnapshots(snaps);
@@ -279,6 +282,7 @@ function App() {
         body: JSON.stringify(nextMemo),
       });
       setMemo(saved);
+      setMemoHistory(await api(`/api/notes/${normalizedTicker}/memo/history`).catch(() => []));
       notify(`${normalizedTicker} 投资备忘录已保存。`, "success", "备忘录已保存");
     } catch (error) {
       notify(error.message, "error", "备忘录保存失败");
@@ -357,7 +361,7 @@ function App() {
         {page === "company" && <CompanyAnalysis companyData={companyData} queueItem={researchQueue.find((item) => item.ticker === normalizedTicker)} memo={memo} secPackage={secPackage} researchDrafts={researchDrafts} snapshots={snapshots} peerComparison={peerComparison} setPage={setPage} refreshCompany={refreshCompany} refreshSecPackage={refreshSecPackage} generateSecDraft={generateSecDraft} updateResearchDraft={updateResearchDraft} savePriceOverride={savePriceOverride} />}
         {page === "valuation" && <ValuationModel ticker={normalizedTicker} companyData={companyData} valuationResult={valuationResult} setValuationResult={setValuationResult} saveSnapshot={saveSnapshot} notify={notify} />}
         {page === "peers" && <PeersPage companyData={companyData} updatePeers={updatePeers} peerSuggestions={peerSuggestions} refreshPeerSuggestions={refreshPeerSuggestions} peerComparison={peerComparison} refreshPeerComparison={refreshPeerComparison} />}
-        {page === "notes" && <NotesPage ticker={normalizedTicker} note={note} memo={memo} saveNote={saveNote} saveMemo={saveMemo} />}
+        {page === "notes" && <NotesPage ticker={normalizedTicker} note={note} memo={memo} memoHistory={memoHistory} saveNote={saveNote} saveMemo={saveMemo} />}
         {page === "history" && <HistorySettings ticker={normalizedTicker} snapshots={snapshots} settings={settings} saveSettings={saveSettings} />}
       </Shell>
       <ToastStack toasts={toasts} dismissToast={dismissToast} />
