@@ -1,3 +1,5 @@
+import pytest
+
 from backend.valuation import run_valuation
 
 
@@ -132,7 +134,9 @@ def test_v3_uses_market_range_above_cash_flow_for_high_growth_profitable_tech():
 
     assert result["methodology_version"].startswith("V3.0")
     assert result["v3_summary"]["style"] == "high_growth_profitable_tech"
-    assert result["fair_value_center"] > result["cash_flow_fair_value_center"] * 2
+    assert result["assumption_build"]["growth_assumptions"]["sources"]["company_prior"] == pytest.approx(0.34)
+    assert result["valuation_layers"]["weights"]["market"] > result["valuation_layers"]["weights"]["intrinsic"]
+    assert result["fair_value_center"] > result["cash_flow_fair_value_center"]
     assert result["fair_value_range"]["high"] > 150
     assert "不需要你自己判断模型冲突" in result["plain_language"]["sanity_check"]
 

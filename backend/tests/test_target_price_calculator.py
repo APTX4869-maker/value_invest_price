@@ -218,6 +218,23 @@ def test_mu_memory_semiconductor_uses_recent_quarter_forward_anchor():
     assert models["forward_pe"]["weight"] > models["mid_cycle_earnings"]["weight"]
     assert any("HBM" in risk for risk in result["key_risks"])
 
+    polluted_peers = run_target_price_calculator(
+        facts,
+        ValuationCalculatorRequest(
+            ticker="MU",
+            manual_overrides={
+                "peer_snapshot": [
+                    {"peer_ticker": "ARM", "peer_forward_pe": 806, "peer_ev_sales": 48, "peer_ev_ebitda": 182},
+                    {"peer_ticker": "CRM", "peer_forward_pe": 27, "peer_ev_sales": 4, "peer_ev_ebitda": 16},
+                    {"peer_ticker": "IBM", "peer_forward_pe": 61, "peer_ev_sales": 4, "peer_ev_ebitda": 20},
+                ]
+            },
+        ),
+    )
+
+    assert polluted_peers["multiples"]["sources"]["ev_sales"] == "default_fallback_adjusted"
+    assert polluted_peers["target_price"]["base"] < 900
+
 
 def test_financial_company_uses_earnings_led_market_range():
     facts = {
@@ -252,3 +269,153 @@ def test_financial_company_uses_earnings_led_market_range():
     assert models["fcf_yield"]["weight"] == 0
     assert models["forward_pe"]["weight"] > models["ev_sales"]["weight"]
     assert 5 < result["target_price"]["base"] < 15
+
+
+def test_industrial_company_is_not_misclassified_as_platform_compounder():
+    facts = {
+        "ticker": "GE",
+        "price": 286.51,
+        "revenue": 45.855e9,
+        "operating_income": 22.887e9,
+        "ocf": 8.537e9,
+        "capex": 1.273e9,
+        "sbc": 0,
+        "cash": 12.392e9,
+        "short_investments": 0,
+        "debt_current": 25e6,
+        "debt_long_term": 20.469e9,
+        "diluted_shares": 1.068e9,
+        "ten_year_yield": 0.045,
+        "company_profile": {
+            "industry": "Electronic & Other Electrical Equipment (No Computer Equip)",
+            "sector": "Electronic & Other Electrical Equipment (No Computer Equip)",
+            "description": "Aerospace engines and industrial equipment manufacturer.",
+        },
+        "annual_history": [
+            {"fiscal_year": 2023, "revenue": 35.348e9, "ocf": 5.189e9, "capex": 862e6},
+            {"fiscal_year": 2024, "revenue": 38.702e9, "ocf": 4.710e9, "capex": 1.032e9},
+            {"fiscal_year": 2025, "revenue": 45.855e9, "ocf": 8.537e9, "capex": 1.273e9},
+        ],
+    }
+
+    result = run_target_price_calculator(facts, ValuationCalculatorRequest(ticker="GE"))
+    models = {model["model"]: model for model in result["model_outputs"]}
+
+    assert result["company_type"] == "industrial"
+    assert result["assumption_build"]["classification"]["confidence"] == "medium_high"
+    assert any("工业" in reason or "电气设备" in reason for reason in result["assumption_build"]["classification"]["reasons"])
+    assert result["assumption_build"]["growth_assumptions"]["sources"]["revenue_cagr_3y"] is not None
+    assert result["scenarios"]["base"]["revenue_cagr_5y"] > 0.08
+    assert result["scenarios"]["base"]["revenue_cagr_5y"] != pytest.approx(0.04)
+    assert models["ev_ebitda"]["weight"] > models["ev_sales"]["weight"]
+    assert models["forward_pe"]["key_inputs"]["forward_period"] == "fy1"
+    assert result["target_price"]["base"] < 300
+
+
+def test_manual_company_type_override_is_recorded_in_assumptions():
+    facts = {
+        "ticker": "TYPE",
+        "price": 50,
+        "revenue": 10e9,
+        "operating_income": 1.8e9,
+        "ocf": 1.7e9,
+        "capex": 600e6,
+        "sbc": 100e6,
+        "cash": 1e9,
+        "short_investments": 0,
+        "debt_current": 0,
+        "debt_long_term": 2e9,
+        "diluted_shares": 500e6,
+        "ten_year_yield": 0.045,
+        "annual_history": [
+            {"fiscal_year": 2022, "revenue": 8e9, "operating_income": 1.1e9, "ocf": 1.2e9, "capex": 500e6},
+            {"fiscal_year": 2023, "revenue": 9e9, "operating_income": 1.4e9, "ocf": 1.4e9, "capex": 550e6},
+            {"fiscal_year": 2024, "revenue": 10e9, "operating_income": 1.8e9, "ocf": 1.7e9, "capex": 600e6},
+        ],
+    }
+
+    result = run_target_price_calculator(
+        facts,
+        ValuationCalculatorRequest(ticker="TYPE", manual_overrides={"company_type": "industrial"}),
+    )
+
+    assert result["company_type"] == "industrial"
+    assert result["assumption_build"]["classification"]["confidence"] == "high"
+    assert "手动覆盖" in result["assumption_build"]["classification"]["reasons"][0]
+
+
+def test_fmp_enrichment_feeds_analyst_layer_and_capex_split():
+    facts = {
+        "ticker": "FMPX",
+        "price": 80,
+        "revenue": 10e9,
+        "operating_income": 2e9,
+        "ocf": 1.8e9,
+        "capex": 600e6,
+        "sbc": 100e6,
+        "cash": 1e9,
+        "short_investments": 0,
+        "debt_current": 100e6,
+        "debt_long_term": 900e6,
+        "diluted_shares": 500e6,
+        "ten_year_yield": 0.045,
+        "raw": {
+            "fmp": {
+                "enrichment": {
+                    "price_target": {
+                        "target_low": 90,
+                        "target_median": 110,
+                        "target_high": 130,
+                        "source": "FMP price target consensus",
+                    },
+                    "normalized": {
+                        "maintenance_capex": 220e6,
+                        "growth_capex": 380e6,
+                        "roic": 0.16,
+                        "current_ratio": 1.6,
+                        "interest_coverage": 8,
+                    },
+                }
+            }
+        },
+    }
+
+    result = run_target_price_calculator(facts, ValuationCalculatorRequest(ticker="FMPX"))
+
+    assert result["valuation_layers"]["analyst"]["base"] == 110
+    assert result["valuation_layers"]["analyst"]["source"] == "FMP price target consensus"
+    assert result["capex_split"]["method"] == "fmp_owner_earnings"
+    assert result["capex_split"]["maintenance_capex"] == pytest.approx(220e6)
+    assert result["quality_breakdown"]["fmp_roic"] == 0.16
+
+
+def test_simple_fcf_dcf_matches_excel_style_cross_check_for_ge():
+    facts = {
+        "ticker": "GE",
+        "price": 286.51,
+        "revenue": 45.855e9,
+        "operating_income": 22.887e9,
+        "ocf": 8.537e9,
+        "capex": 1.273e9,
+        "sbc": 0,
+        "cash": 12.392e9,
+        "short_investments": 0,
+        "debt_current": 25e6,
+        "debt_long_term": 20.469e9,
+        "diluted_shares": 1.068e9,
+        "ten_year_yield": 0.045,
+        "company_profile": {
+            "industry": "Electronic & Other Electrical Equipment (No Computer Equip)",
+            "sector": "Electronic & Other Electrical Equipment (No Computer Equip)",
+        },
+    }
+
+    result = run_target_price_calculator(facts, ValuationCalculatorRequest(ticker="GE"))
+    simple = result["simple_fcf_dcf"]
+
+    assert simple["method"] == "excel_style_fcf_exit_multiple_dcf"
+    assert simple["anchor_method"] == "latest_actual_fcf"
+    assert simple["growths"] == pytest.approx([0.07, 0.09, 0.11, 0.13, 0.15])
+    assert simple["base"] == pytest.approx(240.6, rel=0.01)
+    assert simple["range_low"] == pytest.approx(170.4, rel=0.01)
+    assert simple["range_high"] == pytest.approx(322.4, rel=0.01)

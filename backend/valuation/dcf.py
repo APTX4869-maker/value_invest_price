@@ -26,8 +26,8 @@ def run_three_stage_dcf(
     discount_rate = float(scenario["discount_rate"])
     terminal_fcf_margin = float(scenario["fcf_margin_terminal"])
     terminal_operating_margin = float(scenario["operating_margin_terminal"])
-    start_fcf_margin = safe_div(facts.ocf - capex_split["maintenance_capex"], facts.revenue)
-    start_op_margin = facts.operating_margin
+    start_fcf_margin = float(scenario.get("fcf_margin_start", safe_div(facts.ocf - capex_split["maintenance_capex"], facts.revenue)))
+    start_op_margin = float(scenario.get("operating_margin_start", facts.operating_margin))
 
     cash_flows: list[dict[str, float]] = []
     pv_cash_flows = 0.0

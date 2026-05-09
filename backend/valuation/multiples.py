@@ -3,6 +3,7 @@ from __future__ import annotations
 from statistics import median
 from typing import Any
 
+from ..peer_recommendations import CORE_PEER_LIMIT
 from .models import CompanyType, Facts, clamp, safe_div
 
 
@@ -13,11 +14,45 @@ FALLBACK_MULTIPLES: dict[str, dict[str, tuple[float, float, float]]] = {
     "mature_compounder": {"pe": (16, 22, 28), "ev_ebitda": (11, 15, 19), "ev_sales": (3, 5, 7)},
     "consumer_staples": {"pe": (18, 23, 28), "ev_ebitda": (12, 16, 20), "ev_sales": (3, 5, 7)},
     "cyclical": {"pe": (10, 14, 18), "ev_ebitda": (6, 9, 12), "ev_sales": (1, 2, 3)},
+    "industrial": {"pe": (14, 18, 23), "ev_ebitda": (9, 12, 15), "ev_sales": (1.5, 2.5, 4)},
     "memory_semiconductor": {"pe": (8, 11, 15), "ev_ebitda": (5, 8, 12), "ev_sales": (2, 3.5, 5.5)},
     "unprofitable_growth": {"pe": (0, 0, 0), "ev_ebitda": (0, 0, 0), "ev_sales": (5, 9, 14)},
     "financial": {"pe": (9, 12, 15), "ev_ebitda": (0, 0, 0), "ev_sales": (2, 3, 4)},
     "default": {"pe": (14, 20, 26), "ev_ebitda": (8, 12, 16), "ev_sales": (2, 4, 6)},
 }
+
+DIRECT_MEMORY_PEERS = {"WDC", "STX"}
+MIN_PEER_VALUES_FOR_MULTIPLE = 2
+MULTIPLE_VALUE_BOUNDS = {
+    "peer_forward_pe": (3.0, 120.0),
+    "peer_ev_sales": (0.2, 50.0),
+    "peer_ev_ebitda": (2.0, 80.0),
+    "peer_fcf_yield": (0.0, 0.5),
+}
+
+
+def filter_peer_snapshot_for_multiples(
+    company_type: CompanyType,
+    peer_snapshot: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    peers: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in peer_snapshot or []:
+        peer_ticker = str(item.get("peer_ticker") or "").upper()
+        if peer_ticker and peer_ticker in seen:
+            continue
+        if peer_ticker:
+            seen.add(peer_ticker)
+        peers.append(item)
+        if len(peers) >= CORE_PEER_LIMIT:
+            break
+    if company_type != "memory_semiconductor":
+        return peers
+    direct_memory_peers = [
+        item for item in peers
+        if str(item.get("peer_ticker") or "").upper() in DIRECT_MEMORY_PEERS
+    ]
+    return direct_memory_peers if len(direct_memory_peers) >= 2 else []
 
 
 def _triplet(values: list[float], fallback: tuple[float, float, float]) -> tuple[float, float, float]:
@@ -29,7 +64,28 @@ def _triplet(values: list[float], fallback: tuple[float, float, float]) -> tuple
 
 
 def _peer_values(peer_snapshot: list[dict[str, Any]] | None, key: str) -> list[float]:
-    return [float(item[key]) for item in peer_snapshot or [] if item.get(key)]
+    lower, upper = MULTIPLE_VALUE_BOUNDS.get(key, (0.0, float("inf")))
+    values: list[float] = []
+    for item in peer_snapshot or []:
+        raw_value = item.get(key)
+        if raw_value is None:
+            continue
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if lower <= value <= upper and value > 0:
+            values.append(value)
+    if len(values) < 3:
+        return values
+    midpoint = median(values)
+    if midpoint <= 0:
+        return values
+    return [value for value in values if midpoint * 0.25 <= value <= midpoint * 4]
+
+
+def _uses_peer_snapshot(values: list[float]) -> bool:
+    return len(values) >= MIN_PEER_VALUES_FOR_MULTIPLE
 
 
 def _history_percentile(history: list[dict[str, Any]] | None, key: str, current: float) -> float | str:
@@ -70,20 +126,24 @@ def derive_reasonable_multiples(
     history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     fallback = FALLBACK_MULTIPLES.get(company_type, FALLBACK_MULTIPLES["default"])
+    peer_snapshot = filter_peer_snapshot_for_multiples(company_type, peer_snapshot)
     revenue_next = (forward.get("revenue_next_year") or {}).get("value") or facts.revenue
     fcf_next = (forward.get("fcf_next_year") or {}).get("value") or facts.actual_fcf
     growth = safe_div(revenue_next, facts.revenue) - 1 if facts.revenue else 0
     fcf_margin = safe_div(fcf_next, revenue_next)
     rule = rule_of_40_adjustment(growth, fcf_margin)
 
-    peer_pe = _triplet(_peer_values(peer_snapshot, "peer_forward_pe"), fallback["pe"])
-    peer_ev_sales = _triplet(_peer_values(peer_snapshot, "peer_ev_sales"), fallback["ev_sales"])
-    peer_ev_ebitda = _triplet(_peer_values(peer_snapshot, "peer_ev_ebitda"), fallback["ev_ebitda"])
+    peer_pe_values = _peer_values(peer_snapshot, "peer_forward_pe")
+    peer_ev_sales_values = _peer_values(peer_snapshot, "peer_ev_sales")
+    peer_ev_ebitda_values = _peer_values(peer_snapshot, "peer_ev_ebitda")
+    peer_pe = _triplet(peer_pe_values, fallback["pe"])
+    peer_ev_sales = _triplet(peer_ev_sales_values, fallback["ev_sales"])
+    peer_ev_ebitda = _triplet(peer_ev_ebitda_values, fallback["ev_ebitda"])
 
     source = {
-        "pe": "peer_snapshot" if peer_snapshot and _peer_values(peer_snapshot, "peer_forward_pe") else "default_fallback_adjusted",
-        "ev_sales": "peer_snapshot" if peer_snapshot and _peer_values(peer_snapshot, "peer_ev_sales") else "default_fallback_adjusted",
-        "ev_ebitda": "peer_snapshot" if peer_snapshot and _peer_values(peer_snapshot, "peer_ev_ebitda") else "default_fallback_adjusted",
+        "pe": "peer_snapshot" if _uses_peer_snapshot(peer_pe_values) else "default_fallback_adjusted",
+        "ev_sales": "peer_snapshot" if _uses_peer_snapshot(peer_ev_sales_values) else "default_fallback_adjusted",
+        "ev_ebitda": "peer_snapshot" if _uses_peer_snapshot(peer_ev_ebitda_values) else "default_fallback_adjusted",
     }
 
     if company_type in {"high_growth_software", "unprofitable_growth"}:
@@ -99,10 +159,13 @@ def derive_reasonable_multiples(
 
     forward_eps = (forward.get("eps_next_year") or {}).get("value") or 0
     forward_ebitda = (forward.get("ebitda_next_year") or {}).get("value") or 0
+    fmp_normalized = (((facts.raw or {}).get("fmp") or {}).get("enrichment") or {}).get("normalized") or {}
+    finnhub_normalized = (((facts.raw or {}).get("finnhub") or {}).get("enrichment") or {}).get("normalized") or {}
     current_forward_pe = safe_div(facts.price, forward_eps)
-    current_ev_sales = safe_div(facts.enterprise_value, revenue_next)
-    current_ev_ebitda = safe_div(facts.enterprise_value, forward_ebitda)
-    current_fcf_yield = safe_div(fcf_next, facts.market_cap)
+    current_ev_sales = float(fmp_normalized.get("ev_to_sales") or finnhub_normalized.get("ev_to_sales") or 0) or safe_div(facts.enterprise_value, revenue_next)
+    current_ev_ebitda = float(fmp_normalized.get("ev_to_ebitda") or finnhub_normalized.get("ev_to_ebitda") or 0) or safe_div(facts.enterprise_value, forward_ebitda)
+    current_fcf_yield = float(fmp_normalized.get("fcf_yield") or finnhub_normalized.get("fcf_yield") or 0) or safe_div(fcf_next, facts.market_cap)
+    current_source = "FMP key_metrics_ttm" if fmp_normalized else "Finnhub metrics" if finnhub_normalized else "system_calculated"
 
     return {
         "pe": pe,
@@ -115,6 +178,7 @@ def derive_reasonable_multiples(
             "ev_sales": current_ev_sales,
             "ev_ebitda": current_ev_ebitda,
             "fcf_yield": current_fcf_yield,
+            "source": current_source,
         },
         "percentiles": {
             "current_forward_pe_percentile": _history_percentile(history, "pe_forward", current_forward_pe),

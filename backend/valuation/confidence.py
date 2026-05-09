@@ -12,6 +12,7 @@ BASE_WEIGHTS: dict[str, dict[str, float]] = {
     "mature_compounder": {"fcf_yield": 0.32, "forward_pe": 0.28, "three_stage_dcf": 0.25, "ev_ebitda": 0.15, "reverse_check": 0.00},
     "consumer_staples": {"fcf_yield": 0.32, "forward_pe": 0.28, "three_stage_dcf": 0.20, "ev_ebitda": 0.15, "dividend_growth": 0.05, "reverse_check": 0.00},
     "cyclical": {"mid_cycle_earnings": 0.40, "ev_ebitda": 0.25, "three_stage_dcf": 0.20, "fcf_yield": 0.15, "reverse_check": 0.00},
+    "industrial": {"ev_ebitda": 0.30, "forward_pe": 0.25, "three_stage_dcf": 0.20, "fcf_yield": 0.15, "ev_sales": 0.10, "reverse_check": 0.00},
     "memory_semiconductor": {"forward_pe": 0.28, "ev_ebitda": 0.24, "ev_sales": 0.16, "fcf_yield": 0.12, "three_stage_dcf": 0.12, "mid_cycle_earnings": 0.08, "reverse_check": 0.00},
     "financial": {"forward_pe": 0.82, "ev_sales": 0.18, "three_stage_dcf": 0.00, "ev_ebitda": 0.00, "fcf_yield": 0.00, "reverse_check": 0.00},
     "default": {"three_stage_dcf": 0.30, "forward_pe": 0.25, "fcf_yield": 0.22, "ev_ebitda": 0.18, "ev_sales": 0.05, "reverse_check": 0.00},

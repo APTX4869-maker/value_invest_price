@@ -212,12 +212,16 @@ export function HistorySettings({ ticker, snapshots, settings, saveSettings }) {
           <div className="panel">
             <h3><Settings size={18} /> 市场数据源设置</h3>
             <p className="plain-callout">
-              `alpha_vantage_api_key` 用于 Yahoo 行情失败时兜底抓股价；`fred_api_key` 用于自动更新 10 年期美债。没填也能用，只是会退回本地默认值。
+              `fmp_api_key` 用于补标准化三表和分析师预期；`alpha_vantage_api_key` 用于行情和标准化财报兜底；`finnhub_api_key` 用于行情、公司画像、指标和同行兜底；`fred_api_key` 用于自动更新 10 年期美债。没填也能用，只是会退回免费公开源或本地默认值。
             </p>
             {marketSettings.map(([key, value]) => (
               <label className="setting-row" key={key}>
                 <span>{key}</span>
-                <input value={String(value)} onChange={(event) => setDraft({ ...draft, [key]: parseSetting(event.target.value) })} />
+                <input
+                  type={key.includes("api_key") ? "password" : "text"}
+                  value={String(value)}
+                  onChange={(event) => setDraft({ ...draft, [key]: parseSetting(event.target.value) })}
+                />
               </label>
             ))}
             <button onClick={() => saveSettings(draft)}><Save size={16} />保存设置</button>

@@ -3,6 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 
+CORE_PEER_LIMIT = 8
+PEER_CANDIDATE_LIMIT = 16
+
+
 CURATED_PEERS: dict[str, list[dict[str, Any]]] = {
     "KO": [
         {"ticker": "PEP", "name": "PepsiCo, Inc.", "reason": "同为全球饮料龙头，并且有直接可比的碳酸饮料与非碳酸饮料业务。", "confidence": "高"},
@@ -33,6 +37,13 @@ CURATED_PEERS: dict[str, list[dict[str, Any]]] = {
         {"ticker": "MRVL", "name": "Marvell Technology, Inc.", "reason": "数据中心半导体和网络芯片可比。", "confidence": "中"},
         {"ticker": "TSM", "name": "Taiwan Semiconductor Manufacturing Company", "reason": "AI 芯片制造供应链关键公司，但商业模式是代工而非设计。", "confidence": "中"},
     ],
+    "MU": [
+        {"ticker": "WDC", "name": "Western Digital Corp.", "reason": "存储与 NAND 周期直接相关，可对照存储价格和资本开支周期。", "confidence": "高"},
+        {"ticker": "STX", "name": "Seagate Technology Holdings plc", "reason": "数据存储硬件公司，可作为存储需求和周期弹性的参照。", "confidence": "中高"},
+        {"ticker": "AMD", "name": "Advanced Micro Devices, Inc.", "reason": "AI 服务器需求链条相关，可用来对照 AI 半导体景气度，但不是直接存储同行。", "confidence": "中"},
+        {"ticker": "AVGO", "name": "Broadcom Inc.", "reason": "数据中心半导体平台，可作为 AI 基础设施半导体估值参照。", "confidence": "中"},
+        {"ticker": "QCOM", "name": "QUALCOMM Inc.", "reason": "成熟半导体公司，可对照利润率、现金流和市场倍数。", "confidence": "中"},
+    ],
     "PLTR": [
         {"ticker": "SNOW", "name": "Snowflake Inc.", "reason": "数据平台公司，可比较数据基础设施和企业客户增长。", "confidence": "中高"},
         {"ticker": "DDOG", "name": "Datadog, Inc.", "reason": "企业软件平台，高增长和高估值属性可比。", "confidence": "中"},
@@ -58,6 +69,84 @@ CURATED_PEERS: dict[str, list[dict[str, Any]]] = {
         {"ticker": "LI", "name": "Li Auto Inc.", "reason": "电动车公司，可作为中国市场和新能源车盈利能力参照。", "confidence": "中"},
     ],
 }
+
+DIRECT_REQUIRED_PEERS: dict[str, set[str]] = {
+    "MU": {"WDC", "STX"},
+}
+
+
+def curated_peer_tickers(ticker: str, limit: int = 8) -> list[str]:
+    return [item["ticker"] for item in CURATED_PEERS.get(ticker.upper(), [])[:limit]]
+
+
+def sanitize_peer_tickers(ticker: str, peers: list[str] | None, limit: int = CORE_PEER_LIMIT) -> list[str]:
+    base_ticker = ticker.upper()
+    normalized: list[str] = []
+    seen = {base_ticker}
+    for peer in peers or []:
+        peer_ticker = str(peer or "").strip().upper()
+        if not peer_ticker or peer_ticker in seen:
+            continue
+        normalized.append(peer_ticker)
+        seen.add(peer_ticker)
+        if len(normalized) >= limit:
+            break
+    return normalized
+
+
+def should_replace_with_curated_peers(ticker: str, existing_peers: list[str]) -> bool:
+    ticker = ticker.upper()
+    curated = curated_peer_tickers(ticker)
+    if not curated:
+        return False
+    if not existing_peers:
+        return True
+    required = DIRECT_REQUIRED_PEERS.get(ticker)
+    existing = {peer.upper() for peer in existing_peers}
+    return bool(required and len(existing) >= 4 and not existing.intersection(required))
+
+
+def default_core_peer_tickers(ticker: str, existing_peers: list[str] | None) -> list[str]:
+    sanitized = sanitize_peer_tickers(ticker, existing_peers)
+    if should_replace_with_curated_peers(ticker, sanitized):
+        return sanitize_peer_tickers(ticker, curated_peer_tickers(ticker))
+    return sanitized
+
+
+def external_peer_tickers_from_raw(
+    raw_json: dict[str, Any] | None,
+    ticker: str,
+    limit: int = PEER_CANDIDATE_LIMIT,
+) -> list[str]:
+    raw_json = raw_json or {}
+    candidates: list[str] = []
+    for provider in ("fmp", "finnhub"):
+        enrichment = ((raw_json.get(provider) or {}).get("enrichment") or {})
+        candidates.extend(enrichment.get("peer_tickers") or [])
+    return sanitize_peer_tickers(ticker, candidates, limit=limit)
+
+
+def external_peer_recommendations(
+    raw_json: dict[str, Any] | None,
+    ticker: str,
+    existing_tickers: set[str] | None = None,
+    limit: int = PEER_CANDIDATE_LIMIT,
+) -> list[dict[str, Any]]:
+    existing_tickers = existing_tickers or set()
+    recommendations: list[dict[str, Any]] = []
+    for peer in external_peer_tickers_from_raw(raw_json, ticker, limit=limit):
+        if peer in existing_tickers:
+            continue
+        recommendations.append(
+            {
+                "ticker": peer,
+                "name": peer,
+                "reason": "外部数据源返回的同行候选，需要人工确认；未加入核心同行前不会参与估值倍数。",
+                "confidence": "待确认",
+                "source": "外部数据源候选",
+            }
+        )
+    return recommendations[:limit]
 
 
 SECTOR_PEERS: list[tuple[tuple[str, ...], list[dict[str, Any]]]] = [
@@ -136,4 +225,3 @@ def recommend_peers(company: dict[str, Any], limit: int = 8) -> list[dict[str, A
                     seen.add(item["ticker"])
 
     return recommendations[:limit]
-

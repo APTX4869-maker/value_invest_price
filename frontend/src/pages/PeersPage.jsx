@@ -31,7 +31,7 @@ export function PeersPage({ companyData, updatePeers, peerSuggestions, refreshPe
         <div>
           <p className="eyebrow">相对估值</p>
           <h2>先推荐可比公司，再由你手动选择</h2>
-          <p>系统会尽量推荐真正业务相近的公司，比如可口可乐优先推荐百事、Keurig Dr Pepper 和能量饮料公司，而不是随便抓消费品公司。</p>
+          <p>核心同行最多保留 8 家；FMP / Finnhub 返回的列表只作为待确认候选，不会自动参与估值倍数。</p>
         </div>
         <div className="header-actions">
           <button className="ghost" onClick={refreshPeerSuggestions}><RefreshCcw size={16} />刷新推荐</button>
@@ -117,7 +117,7 @@ export function PeersPage({ companyData, updatePeers, peerSuggestions, refreshPe
               ? `${companyData?.company?.ticker || "当前公司"} 当前被系统判断为「${valuation.judgement}」。同行比较页会用来检查：这个判断是否只是模型偏差，还是同行也支持这个结论。`
               : "先刷新公司数据，再进行同行比较。"}
           </p>
-          <p>对业余投资者来说，同行比较不是为了背倍数，而是为了避免只看一家公司的故事。</p>
+          <p>这里保存的是核心同行篮子。候选公司可以很多，但只有你确认加入后的核心同行才会刷新数据、保存快照并参与相对估值。</p>
         </div>
       </div>
     </section>

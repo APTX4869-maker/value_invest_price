@@ -12,6 +12,7 @@ BASE_MAINTENANCE_RATIOS: dict[str, float] = {
     "mature_compounder": 0.65,
     "consumer_staples": 0.75,
     "cyclical": 0.55,
+    "industrial": 0.60,
     "memory_semiconductor": 0.38,
     "financial": 0.30,
     "unprofitable_growth": 0.25,
@@ -50,6 +51,20 @@ def split_capex(
         ratio = clamp(float(user_override["maintenance_capex_ratio"]), 0, 1)
     else:
         ratio = BASE_MAINTENANCE_RATIOS.get(company_type, BASE_MAINTENANCE_RATIOS["default"])
+
+    fmp_normalized = (((facts.raw or {}).get("fmp") or {}).get("enrichment") or {}).get("normalized") or {}
+    fmp_maintenance = float(fmp_normalized.get("maintenance_capex") or 0)
+    fmp_growth = float(fmp_normalized.get("growth_capex") or 0)
+    if facts.capex > 0 and fmp_maintenance > 0 and fmp_maintenance <= facts.capex * 1.20:
+        maintenance = min(fmp_maintenance, facts.capex)
+        return {
+            "maintenance_capex": maintenance,
+            "growth_capex": max(0.0, facts.capex - maintenance),
+            "maintenance_ratio": safe_div(maintenance, facts.capex),
+            "method": "fmp_owner_earnings",
+            "confidence": "medium_high",
+            "warnings": ["维护性 CAPEX 使用 FMP owner earnings 口径，并保留 SEC/FMP 财报口径交叉校验。"] if fmp_growth else [],
+        }
 
     older_ratio, recent_ratio = _recent_capex_ratio(annual_history)
     warnings: list[str] = []

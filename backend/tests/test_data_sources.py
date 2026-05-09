@@ -8,7 +8,10 @@ from backend.data_sources import (
     build_annual_history,
     build_recent_period_snapshot,
     detect_reporting_currency,
+    fetch_alpha_vantage_company_data,
     fetch_company_facts,
+    fetch_finnhub_company_data,
+    fetch_fmp_company_data,
     fetch_price,
     fetch_qqq_holdings,
     fetch_sp500_holdings,
@@ -443,3 +446,115 @@ def test_fetch_ten_year_yield_uses_fred_when_available(monkeypatch):
 
     assert value == 0.0431
     assert source == "FRED DGS10 (2026-04-23)"
+
+
+def test_fetch_fmp_company_data_collects_enrichment(monkeypatch):
+    def fake_get_json(url, user_agent, timeout=20, retries=2):
+        if "income-statement" in url:
+            return [{"date": "2025-12-31", "calendarYear": "2025", "revenue": 1000, "operatingIncome": 220, "weightedAverageShsOutDil": 100}]
+        if "cash-flow-statement" in url:
+            return [{"date": "2025-12-31", "calendarYear": "2025", "operatingCashFlow": 180, "capitalExpenditure": -40, "stockBasedCompensation": 5}]
+        if "balance-sheet-statement" in url:
+            return [{"date": "2025-12-31", "calendarYear": "2025", "cashAndCashEquivalents": 120, "shortTermDebt": 10, "longTermDebt": 50}]
+        if "quote" in url:
+            return [{"price": 25}]
+        if "analyst-estimates" in url:
+            return [{"date": "2026-12-31", "estimatedRevenueAvg": 1120, "estimatedEpsAvg": 2.4, "estimatedEbitdaAvg": 260}]
+        if "key-metrics-ttm" in url:
+            return [{"roicTTM": 0.18, "evToSalesTTM": 3.2, "freeCashFlowYieldTTM": 0.045}]
+        if "ratios-ttm" in url:
+            return [{"currentRatioTTM": 1.8, "interestCoverageTTM": 9.5, "grossProfitMarginTTM": 0.55}]
+        if "enterprise-values" in url:
+            return [{"marketCapitalization": 2500, "enterpriseValue": 2440, "numberOfShares": 100}]
+        if "owner-earnings" in url:
+            return [{"ownerEarnings": 150, "ownersEarningsPerShare": 1.5, "maintenanceCapex": 25, "growthCapex": 15}]
+        if "price-target-consensus" in url:
+            return [{"targetLow": 20, "targetMedian": 28, "targetHigh": 35}]
+        if "stock-peers" in url:
+            return [{"peersList": ["PEER1", "PEER2"]}]
+        return []
+
+    monkeypatch.setattr("backend.data_sources.get_json", fake_get_json)
+
+    output = fetch_fmp_company_data("TEST", "demo-key", "ua")
+
+    assert output["latest"]["revenue"] == 1000
+    assert output["consensus"]["eps_next_year"] == 2.4
+    assert output["enrichment"]["normalized"]["roic"] == 0.18
+    assert output["enrichment"]["normalized"]["maintenance_capex"] == 25
+    assert output["enrichment"]["price_target"]["target_median"] == 28
+    assert output["enrichment"]["peer_tickers"] == ["PEER1", "PEER2"]
+
+
+def test_fetch_alpha_vantage_company_data_collects_statement_fallback(monkeypatch):
+    def fake_get_json(url, user_agent, timeout=20, retries=2):
+        if "OVERVIEW" in url:
+            return {"Symbol": "TEST", "SharesOutstanding": "100", "AnalystTargetPrice": "31.5", "ReturnOnEquityTTM": "0.21"}
+        if "INCOME_STATEMENT" in url:
+            return {
+                "annualReports": [
+                    {"fiscalDateEnding": "2025-12-31", "totalRevenue": "1000", "operatingIncome": "210"},
+                ]
+            }
+        if "BALANCE_SHEET" in url:
+            return {
+                "annualReports": [
+                    {
+                        "fiscalDateEnding": "2025-12-31",
+                        "cashAndCashEquivalentsAtCarryingValue": "120",
+                        "shortTermDebt": "10",
+                        "longTermDebt": "50",
+                        "commonStockSharesOutstanding": "100",
+                    },
+                ]
+            }
+        if "CASH_FLOW" in url:
+            return {
+                "annualReports": [
+                    {"fiscalDateEnding": "2025-12-31", "operatingCashflow": "180", "capitalExpenditures": "-40"},
+                ]
+            }
+        return {}
+
+    monkeypatch.setattr("backend.data_sources.get_json", fake_get_json)
+
+    output = fetch_alpha_vantage_company_data("TEST", "demo-key", "ua")
+
+    assert output["latest"]["revenue"] == 1000
+    assert output["latest"]["capex"] == 40
+    assert output["latest"]["diluted_shares"] == 100
+    assert output["annual_history"][0]["source"] == "Alpha Vantage standardized statements"
+    assert output["enrichment"]["price_target"]["target_median"] == 31.5
+    assert output["available"]["income_statement"] is True
+
+
+def test_fetch_finnhub_company_data_collects_metrics_and_peers(monkeypatch):
+    def fake_get_json(url, user_agent, timeout=20, retries=2):
+        if "quote" in url:
+            return {"c": 25.5}
+        if "profile2" in url:
+            return {"name": "Test Co", "marketCapitalization": 2500}
+        if "stock/metric" in url:
+            return {
+                "metric": {
+                    "enterpriseValue": 2600,
+                    "evRevenueTTM": 3.1,
+                    "evEbitdaTTM": 12.2,
+                    "pfcfShareTTM": 25,
+                    "roeTTM": 18.0,
+                    "currentRatioQuarterly": 1.4,
+                }
+            }
+        if "stock/peers" in url:
+            return ["TEST", "PEER1", "PEER2"]
+        return {}
+
+    monkeypatch.setattr("backend.data_sources.get_json", fake_get_json)
+
+    output = fetch_finnhub_company_data("TEST", "demo-key", "ua")
+
+    assert output["latest"]["price"] == 25.5
+    assert output["enrichment"]["peer_tickers"] == ["PEER1", "PEER2"]
+    assert output["enrichment"]["normalized"]["market_cap"] == 2_500_000_000
+    assert output["enrichment"]["normalized"]["enterprise_value"] == 2_600_000_000
+    assert output["enrichment"]["normalized"]["fcf_yield"] == 0.04

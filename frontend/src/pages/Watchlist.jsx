@@ -42,40 +42,46 @@ function QueueCard({ item, setTicker, setPage, refreshCompany, updateResearchQue
 
   return (
     <article className="queue-card">
-      <div className="card-head">
-        <div>
-          <h3>{item.ticker}</h3>
-          <p>{company.name || item.ticker}</p>
+      <div className="queue-card-main">
+        <div className="queue-card-identity">
+          <div className="queue-symbol-row">
+            <div>
+              <h3>{item.ticker}</h3>
+              <p>{company.name || item.ticker}</p>
+            </div>
+            <Badge tone={judgementTone(valuation?.judgement)}>{valuation?.judgement || "待分析"}</Badge>
+          </div>
+          <div className="queue-tags">
+            <Badge>{item.status_label}</Badge>
+            {item.discovery_label ? <Badge tone="good">{item.discovery_label}</Badge> : null}
+            {(item.tags || []).slice(0, 4).map((tag) => <Badge key={tag} tone="neutral">{tag}</Badge>)}
+          </div>
         </div>
-        <Badge tone={judgementTone(valuation?.judgement)}>{valuation?.judgement || "待分析"}</Badge>
-      </div>
 
-      <div className="queue-tags">
-        <Badge>{item.status_label}</Badge>
-        {item.discovery_label ? <Badge tone="good">{item.discovery_label}</Badge> : null}
-        {(item.tags || []).slice(0, 3).map((tag) => <Badge key={tag} tone="neutral">{tag}</Badge>)}
-      </div>
+        <div className="queue-card-notes">
+          <p className="plain-callout">{item.entry_reason || "手动加入的研究线索，等待补充入队理由。"}</p>
+          <p className="queue-next"><strong>下一步</strong><span>{item.next_action}</span></p>
+          {tickerErrors[item.ticker] ? <p className="error-callout">{tickerErrors[item.ticker]}</p> : null}
+        </div>
 
-      <div className="mini-stats">
-        <Stat label="当前价" value={formatMoney(valuation?.current_price, false)} />
-        <Stat label="合理中枢" value={formatMoney(valuation?.fair_value_center, false)} />
-        <Stat label="可信度" value={confidenceValue(valuation?.confidence)} />
-      </div>
-
-      <p className="plain-callout">{item.entry_reason || "手动加入的研究线索，等待补充入队理由。"}</p>
-      <p className="queue-next"><strong>下一步</strong><span>{item.next_action}</span></p>
-      {tickerErrors[item.ticker] ? <p className="error-callout">{tickerErrors[item.ticker]}</p> : null}
-
-      <div className="queue-edit-row">
-        <label>
-          <span>状态</span>
-          <select value={status} onChange={(event) => updateResearchQueueItem(item.ticker, { status: event.target.value })}>
-            {STATUSES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
-          </select>
-        </label>
-        <button className="ghost" onClick={() => updateResearchQueueItem(item.ticker, { status: nextStatus(status) })}>
-          <ArrowRight size={15} />推进
-        </button>
+        <div className="queue-card-side">
+          <div className="mini-stats">
+            <Stat label="当前价" value={formatMoney(valuation?.current_price, false)} />
+            <Stat label="合理中枢" value={formatMoney(valuation?.fair_value_center, false)} />
+            <Stat label="可信度" value={confidenceValue(valuation?.confidence)} />
+          </div>
+          <div className="queue-edit-row">
+            <label>
+              <span>状态</span>
+              <select value={status} onChange={(event) => updateResearchQueueItem(item.ticker, { status: event.target.value })}>
+                {STATUSES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+              </select>
+            </label>
+            <button className="ghost" onClick={() => updateResearchQueueItem(item.ticker, { status: nextStatus(status) })}>
+              <ArrowRight size={15} />推进
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="card-actions">

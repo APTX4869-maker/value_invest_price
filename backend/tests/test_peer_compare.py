@@ -1,9 +1,10 @@
 import backend.db as db_module
 from backend.db import connect, dumps, init_db, now_iso
 from backend.dependencies import get_facts_or_404
+from backend.peer_recommendations import curated_peer_tickers, sanitize_peer_tickers, should_replace_with_curated_peers
 from backend.routers.companies import _peer_summary
-from backend.routers.companies import compare_peers
-from backend.schemas import ValuationCalculatorRequest
+from backend.routers.companies import compare_peers, peer_suggestions, refresh_company, update_peers
+from backend.schemas import PeersRequest, ValuationCalculatorRequest
 from backend.valuation import run_target_price_calculator
 
 
@@ -95,12 +96,13 @@ def test_peer_summary_handles_missing_peer_data():
 
 def test_peer_compare_saves_snapshot_for_dynamic_multiples(tmp_path, monkeypatch):
     _use_temp_db(tmp_path, monkeypatch)
-    _seed_company("BASE", peers=["PEER"], price=100)
+    _seed_company("BASE", peers=["PEER", "PEER2"], price=100)
     _seed_company("PEER", price=140, revenue=1200, operating_income=360, ocf=320, capex=35)
+    _seed_company("PEER2", price=120, revenue=1100, operating_income=300, ocf=290, capex=30)
 
     comparison = compare_peers("BASE")
 
-    assert comparison["summary"]["available_count"] == 1
+    assert comparison["summary"]["available_count"] == 2
     with connect() as conn:
         row = conn.execute("SELECT * FROM peer_valuation_snapshot WHERE ticker = 'BASE' AND peer_ticker = 'PEER'").fetchone()
     assert row is not None
@@ -109,3 +111,76 @@ def test_peer_compare_saves_snapshot_for_dynamic_multiples(tmp_path, monkeypatch
     result = run_target_price_calculator(get_facts_or_404("BASE"), ValuationCalculatorRequest(ticker="BASE"))
 
     assert result["multiples"]["sources"]["ev_sales"] == "peer_snapshot"
+
+
+def test_single_peer_snapshot_does_not_drive_market_multiples(tmp_path, monkeypatch):
+    _use_temp_db(tmp_path, monkeypatch)
+    _seed_company("BASE", peers=["PEER"], price=100)
+    _seed_company("PEER", price=140, revenue=1200, operating_income=360, ocf=320, capex=35)
+
+    compare_peers("BASE")
+    result = run_target_price_calculator(get_facts_or_404("BASE"), ValuationCalculatorRequest(ticker="BASE"))
+
+    assert result["multiples"]["sources"]["ev_sales"] == "default_fallback_adjusted"
+
+
+def test_mu_curated_peers_replace_broad_provider_list():
+    assert curated_peer_tickers("MU")[:2] == ["WDC", "STX"]
+    assert should_replace_with_curated_peers("MU", ["AMAT", "ARM", "CRM", "IBM"])
+    assert not should_replace_with_curated_peers("MU", ["WDC", "STX", "AMD"])
+
+
+def test_core_peer_list_is_deduped_and_capped():
+    peers = sanitize_peer_tickers("BASE", ["A", "A", "BASE", "B", "C", "D", "E", "F", "G", "H", "I"])
+
+    assert peers == ["A", "B", "C", "D", "E", "F", "G", "H"]
+
+
+def test_update_peers_caps_selected_core_peers(tmp_path, monkeypatch):
+    _use_temp_db(tmp_path, monkeypatch)
+    _seed_company("BASE")
+
+    company = update_peers("BASE", PeersRequest(peers=["A", "B", "C", "D", "E", "F", "G", "H", "I"]))
+
+    assert company["peers"] == ["A", "B", "C", "D", "E", "F", "G", "H"]
+
+
+def test_refresh_company_keeps_external_peers_as_candidates(tmp_path, monkeypatch):
+    _use_temp_db(tmp_path, monkeypatch)
+
+    def fake_fetch_company_facts(*args, **kwargs):
+        return {
+            "name": "Test Corp",
+            "sec_meta": {"sic_description": "Application Software"},
+            "fiscal_year": 2025,
+            "revenue": 1000,
+            "operating_income": 250,
+            "ocf": 220,
+            "capex": 30,
+            "sbc": 5,
+            "cash": 80,
+            "short_investments": 0,
+            "debt_current": 0,
+            "debt_long_term": 10,
+            "diluted_shares": 10,
+            "price": 100,
+            "price_source": "test",
+            "ten_year_yield": 0.045,
+            "ten_year_yield_source": "test",
+            "source": "test",
+            "annual_history": [],
+            "raw_json": {
+                "fmp": {"enrichment": {"peer_tickers": ["ABC", "DEF", "GHI"]}},
+                "finnhub": {"enrichment": {"peer_tickers": ["IBM", "ORCL"]}},
+            },
+        }
+
+    monkeypatch.setattr("backend.routers.companies.fetch_company_facts", fake_fetch_company_facts)
+
+    refreshed = refresh_company("TST")
+    suggestions = peer_suggestions("TST")
+
+    assert refreshed["company"]["peers"] == []
+    external = [item for item in suggestions if item["source"] == "外部数据源候选"]
+    assert [item["ticker"] for item in external[:3]] == ["ABC", "DEF", "GHI"]
+    assert not any(item["selected"] for item in external)

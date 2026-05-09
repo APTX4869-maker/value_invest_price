@@ -12,6 +12,7 @@ CompanyType = Literal[
     "mature_compounder",
     "consumer_staples",
     "cyclical",
+    "industrial",
     "memory_semiconductor",
     "financial",
     "unprofitable_growth",

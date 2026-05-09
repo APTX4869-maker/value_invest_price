@@ -28,58 +28,72 @@ function reasonTitle(key) {
   }[key] || key;
 }
 
-function DiscoveryReasons({ row }) {
+function DiscoveryReasonsPanel({ row }) {
   const entries = Object.entries(row.reasons || {}).filter(([, items]) => items?.length);
   return (
-    <details className="discovery-reasons">
-      <summary><ChevronDown size={15} />展开排名原因</summary>
-      <div className="discovery-reason-grid">
-        {entries.map(([key, items]) => (
-          <div key={key}>
-            <strong>{reasonTitle(key)}</strong>
-            <ul>
-              {items.map((item, index) => <li key={`${key}-${index}`}>{item}</li>)}
-            </ul>
-          </div>
-        ))}
-      </div>
-    </details>
+    <div className="discovery-reason-grid">
+      {entries.map(([key, items]) => (
+        <div key={key}>
+          <strong>{reasonTitle(key)}</strong>
+          <ul>
+            {items.map((item, index) => <li key={`${key}-${index}`}>{item}</li>)}
+          </ul>
+        </div>
+      ))}
+    </div>
   );
 }
 
 function DiscoveryRow({ row, poolName, onOpen, onAdd }) {
+  const [expanded, setExpanded] = useState(false);
   const ready = row.status === "ready";
+  const hasReasons = Object.values(row.reasons || {}).some((items) => items?.length);
   return (
-    <tr className={row.label === "重点研究" ? "discovery-focus-row" : ""}>
-      <td>
-        <strong>#{row.discovery_rank || "-"} {row.ticker}</strong>
-        <span>{row.name}</span>
-        <small>{poolName} #{row.pool_rank || row.holding_rank || "-"} · 权重 {row.pool_weight ? formatPercent(row.pool_weight) : "-"}</small>
-        {row.sector || row.industry ? <small>{row.sector || row.industry}</small> : null}
-      </td>
-      <td><Badge tone={labelTone(row.label)}>{row.label}</Badge></td>
-      <td>{ready ? confidenceText(row.confidence) : "-"}</td>
-      <td>{ready ? formatPercent(row.undervaluation) : "-"}</td>
-      <td>{ready ? `${row.moat_score}/100` : "-"}</td>
-      <td>{ready ? `${row.financial_score}/100` : "-"}</td>
-      <td>{ready ? `${row.competition_risk_score}/100` : "-"}</td>
-      <td>
-        <div className="discovery-price-cell">
-          <span>{formatMoney(row.current_price, false)}</span>
-          <strong>{ready ? formatMoney(row.target_price?.base, false) : "-"}</strong>
-        </div>
-      </td>
-      <td>
-        <p className="discovery-summary">{row.summary}</p>
-        <DiscoveryReasons row={row} />
-      </td>
-      <td>
-        <div className="discovery-actions">
-          <button className="ghost icon-button" onClick={() => onOpen(row)} title="打开公司档案"><ExternalLink size={15} /></button>
-          <button className="ghost icon-button" onClick={() => onAdd(row)} title="加入研究队列"><Plus size={15} /></button>
-        </div>
-      </td>
-    </tr>
+    <>
+      <tr className={row.label === "重点研究" ? "discovery-focus-row" : ""}>
+        <td>
+          <div className="discovery-company-cell">
+            <strong>#{row.discovery_rank || "-"} {row.ticker}</strong>
+            <span>{row.name}</span>
+            <small>{poolName} #{row.pool_rank || row.holding_rank || "-"} · 权重 {row.pool_weight ? formatPercent(row.pool_weight) : "-"}</small>
+            {row.sector || row.industry ? <small>{row.sector || row.industry}</small> : null}
+          </div>
+        </td>
+        <td><Badge tone={labelTone(row.label)}>{row.label}</Badge></td>
+        <td>{ready ? confidenceText(row.confidence) : "-"}</td>
+        <td>{ready ? formatPercent(row.undervaluation) : "-"}</td>
+        <td>{ready ? `${row.moat_score}/100` : "-"}</td>
+        <td>{ready ? `${row.financial_score}/100` : "-"}</td>
+        <td>{ready ? `${row.competition_risk_score}/100` : "-"}</td>
+        <td>
+          <div className="discovery-price-cell">
+            <span>{formatMoney(row.current_price, false)}</span>
+            <strong>{ready ? formatMoney(row.target_price?.base, false) : "-"}</strong>
+          </div>
+        </td>
+        <td>
+          <p className="discovery-summary">{row.summary}</p>
+          {hasReasons ? (
+            <button className={`reason-toggle ${expanded ? "open" : ""}`} type="button" onClick={() => setExpanded(!expanded)}>
+              <ChevronDown size={15} />{expanded ? "收起排名原因" : "展开排名原因"}
+            </button>
+          ) : null}
+        </td>
+        <td>
+          <div className="discovery-actions">
+            <button className="ghost icon-button" onClick={() => onOpen(row)} title="打开公司档案"><ExternalLink size={15} /></button>
+            <button className="ghost icon-button" onClick={() => onAdd(row)} title="加入研究队列"><Plus size={15} /></button>
+          </div>
+        </td>
+      </tr>
+      {expanded ? (
+        <tr className={`discovery-reasons-row ${row.label === "重点研究" ? "discovery-focus-row" : ""}`}>
+          <td colSpan={10}>
+            <DiscoveryReasonsPanel row={row} />
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }
 

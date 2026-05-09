@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -12,10 +13,16 @@ from ..data_sources import (
     fetch_company_facts,
     search_tickers,
 )
-from ..db import connect, dumps, now_iso, row_to_dict
+from ..db import connect, dumps, loads, now_iso, row_to_dict
 from ..dependencies import get_company_or_404, get_facts_or_404, get_setting, serialize_company
 from ..llm_research import LLMConfigError, LLMProviderError, generate_company_research_draft, list_research_drafts, update_research_draft
-from ..peer_recommendations import recommend_peers
+from ..peer_recommendations import (
+    CORE_PEER_LIMIT,
+    default_core_peer_tickers,
+    external_peer_recommendations,
+    recommend_peers,
+    sanitize_peer_tickers,
+)
 from ..sec_filings import get_cached_research_package, list_company_filings, refresh_company_research_package
 from ..schemas import PeersRequest, PriceOverrideRequest, ResearchDraftPatchRequest
 from ..valuation import run_valuation
@@ -72,6 +79,7 @@ def _comparison_row(ticker: str, role: str = "peer") -> dict[str, Any]:
         "role": role,
         "status": "ready",
         "industry": company.get("industry") or company.get("sector") or "",
+        "company_type": result.get("company_type"),
         "judgement": result["judgement"],
         "quality_score": result["quality_score"],
         "confidence": result["confidence"],
@@ -131,6 +139,55 @@ def _save_peer_snapshot(ticker: str, peers: list[dict[str, Any]]) -> None:
                     ts,
                 ),
             )
+
+
+def _parse_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _financials_recently_refreshed(ticker: str, max_age_hours: int = 24) -> bool:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT updated_at FROM financial_facts WHERE ticker = ?",
+            (ticker.upper(),),
+        ).fetchone()
+    refreshed_at = _parse_timestamp(row["updated_at"] if row else None)
+    if not refreshed_at:
+        return False
+    return datetime.now(timezone.utc) - refreshed_at <= timedelta(hours=max_age_hours)
+
+
+def _peer_refresh_result(ticker: str, message: str, valuation: dict[str, Any] | None = None) -> dict[str, Any]:
+    valuation = valuation or {}
+    confidence = valuation.get("confidence")
+    return {
+        "ticker": ticker.upper(),
+        "status": "ready",
+        "message": message,
+        "judgement": valuation.get("judgement"),
+        "current_price": valuation.get("current_price"),
+        "fair_value_center": valuation.get("fair_value_center"),
+        "confidence_score": confidence.get("score") if isinstance(confidence, dict) else None,
+    }
+
+
+def _core_peers_for_company(ticker: str, peers: list[str] | None, persist: bool = False) -> list[str]:
+    core_peers = sanitize_peer_tickers(ticker, peers)
+    if persist and list(peers or []) != core_peers:
+        with connect() as conn:
+            conn.execute(
+                "UPDATE companies SET peers_json = ?, updated_at = ? WHERE ticker = ?",
+                (dumps(core_peers), now_iso(), ticker.upper()),
+            )
+    return core_peers
 
 
 def _peer_summary(current: dict[str, Any], peers: list[dict[str, Any]]) -> dict[str, Any]:
@@ -204,6 +261,48 @@ def _source_response_help(error: Exception) -> str:
     )
 
 
+def _save_fmp_consensus_if_safe(conn: Any, ticker: str, consensus: dict[str, Any] | None, ts: str) -> None:
+    if not consensus:
+        return
+    existing = conn.execute("SELECT source FROM consensus_estimates WHERE ticker = ?", (ticker,)).fetchone()
+    existing_source = str(existing["source"] or "") if existing else ""
+    if existing_source and not existing_source.lower().startswith("fmp"):
+        return
+    conn.execute(
+        """
+        INSERT INTO consensus_estimates
+        (ticker, fiscal_year, revenue_next_year, revenue_2y, eps_next_year, eps_2y,
+         ebitda_next_year, operating_income_next_year, fcf_next_year, long_term_eps_growth,
+         source, updated_at, raw_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+        ON CONFLICT(ticker) DO UPDATE SET
+            fiscal_year = excluded.fiscal_year,
+            revenue_next_year = excluded.revenue_next_year,
+            revenue_2y = excluded.revenue_2y,
+            eps_next_year = excluded.eps_next_year,
+            eps_2y = excluded.eps_2y,
+            ebitda_next_year = excluded.ebitda_next_year,
+            operating_income_next_year = excluded.operating_income_next_year,
+            source = excluded.source,
+            updated_at = excluded.updated_at,
+            raw_json = excluded.raw_json
+        """,
+        (
+            ticker,
+            consensus.get("fiscal_year"),
+            consensus.get("revenue_next_year"),
+            consensus.get("revenue_2y"),
+            consensus.get("eps_next_year"),
+            consensus.get("eps_2y"),
+            consensus.get("ebitda_next_year"),
+            consensus.get("operating_income_next_year"),
+            consensus.get("source") or "FMP analyst estimates",
+            ts,
+            dumps(consensus.get("raw") or {}),
+        ),
+    )
+
+
 @router.get("/tickers/search")
 def ticker_search(q: str = "", limit: int = 8) -> list[dict[str, str]]:
     user_agent = get_setting("sec_user_agent", "personal-value-study contact@example.com")
@@ -217,6 +316,8 @@ def refresh_company(ticker: str) -> dict[str, Any]:
     fallback_yield = float(get_setting("default_ten_year_yield", 0.045))
     alpha_vantage_api_key = str(get_setting("alpha_vantage_api_key", "") or "")
     fred_api_key = str(get_setting("fred_api_key", "") or "")
+    fmp_api_key = str(get_setting("fmp_api_key", "") or "")
+    finnhub_api_key = str(get_setting("finnhub_api_key", "") or "")
     try:
         fetched = fetch_company_facts(
             ticker,
@@ -224,6 +325,8 @@ def refresh_company(ticker: str) -> dict[str, Any]:
             fallback_yield,
             alpha_vantage_api_key=alpha_vantage_api_key,
             fred_api_key=fred_api_key,
+            fmp_api_key=fmp_api_key,
+            finnhub_api_key=finnhub_api_key,
         )
     except UnsupportedTickerError as exc:
         raise HTTPException(status_code=404, detail=_unsupported_ticker_help(exc)) from exc
@@ -336,6 +439,20 @@ def refresh_company(ticker: str) -> dict[str, Any]:
                 dumps(fetched.get("raw_json", {})),
             ),
         )
+        company_peer_row = conn.execute("SELECT peers_json FROM companies WHERE ticker = ?", (ticker,)).fetchone()
+        existing_peers = []
+        if company_peer_row:
+            try:
+                existing_peers = loads(company_peer_row["peers_json"], [])
+            except Exception:
+                existing_peers = []
+        core_peer_tickers = default_core_peer_tickers(ticker, existing_peers)
+        if core_peer_tickers != existing_peers:
+            conn.execute(
+                "UPDATE companies SET peers_json = ?, updated_at = ? WHERE ticker = ?",
+                (dumps(core_peer_tickers), ts, ticker),
+            )
+        _save_fmp_consensus_if_safe(conn, ticker, ((fetched.get("raw_json") or {}).get("fmp") or {}).get("consensus"), ts)
     return get_company(ticker)
 
 
@@ -424,7 +541,7 @@ def patch_research_draft(ticker: str, draft_id: int, payload: ResearchDraftPatch
 @router.put("/company/{ticker}/peers")
 def update_peers(ticker: str, payload: PeersRequest) -> dict[str, Any]:
     get_company_or_404(ticker)
-    peers = [p.upper() for p in payload.peers if p.strip()]
+    peers = sanitize_peer_tickers(ticker, payload.peers)
     with connect() as conn:
         conn.execute(
             "UPDATE companies SET peers_json = ?, updated_at = ? WHERE ticker = ?",
@@ -438,13 +555,19 @@ def update_peers(ticker: str, payload: PeersRequest) -> dict[str, Any]:
 def compare_peers(ticker: str) -> dict[str, Any]:
     company = get_company_or_404(ticker)
     current = _comparison_row(ticker, role="current")
-    peers = [_comparison_row(peer, role="peer") for peer in company.get("peers", [])]
+    core_peers = _core_peers_for_company(ticker, company.get("peers", []), persist=True)
+    peers = [_comparison_row(peer, role="peer") for peer in core_peers]
     _save_peer_snapshot(ticker, peers)
     return {
         "ticker": ticker.upper(),
         "current": current,
         "peers": peers,
         "summary": _peer_summary(current, peers),
+        "peer_policy": {
+            "core_peer_limit": CORE_PEER_LIMIT,
+            "core_peers": core_peers,
+            "note": "只有核心同行会刷新、保存快照并参与估值；外部数据源返回的同行只作为待确认候选。",
+        },
         "updated_at": now_iso(),
     }
 
@@ -453,15 +576,14 @@ def compare_peers(ticker: str) -> dict[str, Any]:
 def refresh_peers(ticker: str) -> dict[str, Any]:
     company = get_company_or_404(ticker)
     results = []
-    for peer in company.get("peers", []):
+    core_peers = _core_peers_for_company(ticker, company.get("peers", []), persist=True)
+    for peer in core_peers:
         try:
+            if _financials_recently_refreshed(peer):
+                results.append(_peer_refresh_result(peer, "最近 24 小时已刷新，直接使用本地缓存。"))
+                continue
             refreshed = refresh_company(peer)
-            results.append({
-                "ticker": peer,
-                "status": "ready",
-                "message": "已刷新",
-                "valuation": refreshed.get("valuation"),
-            })
+            results.append(_peer_refresh_result(peer, "已刷新", refreshed.get("valuation")))
         except HTTPException as exc:
             results.append({
                 "ticker": peer,
@@ -504,4 +626,12 @@ def peer_suggestions(ticker: str) -> list[dict[str, Any]]:
     company = get_company_or_404(ticker)
     existing = set(company.get("peers", []))
     suggestions = recommend_peers(company)
-    return [{**item, "selected": item["ticker"] in existing} for item in suggestions]
+    seen = {company.get("ticker", ticker).upper()}
+    seen.update(item["ticker"] for item in suggestions)
+    try:
+        facts = get_facts_or_404(ticker)
+        raw_json = facts.get("raw") or {}
+    except HTTPException:
+        raw_json = {}
+    suggestions.extend(external_peer_recommendations(raw_json, ticker, seen))
+    return [{**item, "selected": item["ticker"] in existing} for item in suggestions[:16]]

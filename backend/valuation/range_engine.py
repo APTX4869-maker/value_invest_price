@@ -15,6 +15,7 @@ LAYER_WEIGHTS: dict[str, dict[str, float]] = {
     "mature_compounder": {"intrinsic": 0.40, "market": 0.50, "analyst": 0.10},
     "consumer_staples": {"intrinsic": 0.42, "market": 0.48, "analyst": 0.10},
     "cyclical": {"intrinsic": 0.30, "market": 0.60, "analyst": 0.10},
+    "industrial": {"intrinsic": 0.35, "market": 0.55, "analyst": 0.10},
     "memory_semiconductor": {"intrinsic": 0.18, "market": 0.72, "analyst": 0.10},
     "financial": {"intrinsic": 0.00, "market": 0.85, "analyst": 0.15},
     "default": {"intrinsic": 0.35, "market": 0.55, "analyst": 0.10},

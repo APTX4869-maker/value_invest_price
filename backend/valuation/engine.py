@@ -3,15 +3,17 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from .assumptions import SPECIAL_PROFILES, build_scenarios, infer_company_type, resolve_forward_estimates
+from .assumption_engine import build_assumptions
+from .assumptions import resolve_forward_estimates
 from .capex import split_capex
 from .confidence import BASE_WEIGHTS, aggregate_targets, apply_dynamic_model_weights, confidence_score, rating_from_targets
 from .dcf import dcf_sensitivity_table, run_three_stage_dcf
 from .models import Facts, ModelOutput, build_facts, safe_div
-from .multiples import derive_reasonable_multiples
+from .multiples import derive_reasonable_multiples, filter_peer_snapshot_for_multiples
 from .quality import build_data_quality, calculate_quality_score
 from .range_engine import combine_layered_target
 from .reverse import reverse_dcf, reverse_multiples
+from .simple import run_simple_fcf_dcf
 
 
 def _load_consensus_from_db(ticker: str) -> dict[str, Any] | None:
@@ -261,14 +263,33 @@ def _target_prices(aggregate: dict[str, float], current_price: float) -> dict[st
 def run_target_price_calculator(facts_dict: dict[str, Any], request: Any | None = None) -> dict[str, Any]:
     facts = build_facts(facts_dict)
     manual_overrides = dict(getattr(request, "manual_overrides", {}) or {})
+    fmp_price_target = (((facts.raw or {}).get("fmp") or {}).get("enrichment") or {}).get("price_target") or {}
+    if fmp_price_target and not any(key in manual_overrides for key in ["analyst_target", "analyst_price_target", "analyst_target_median", "analyst_target_consensus"]):
+        manual_overrides.update({
+            "analyst_target_low": fmp_price_target.get("target_low"),
+            "analyst_target_median": fmp_price_target.get("target_median") or fmp_price_target.get("target_consensus"),
+            "analyst_target_consensus": fmp_price_target.get("target_consensus"),
+            "analyst_target_high": fmp_price_target.get("target_high"),
+            "analyst_target_source": fmp_price_target.get("source") or "FMP price target consensus",
+        })
+    alpha_price_target = (((facts.raw or {}).get("alpha_vantage") or {}).get("enrichment") or {}).get("price_target") or {}
+    if alpha_price_target and not any(key in manual_overrides for key in ["analyst_target", "analyst_price_target", "analyst_target_median", "analyst_target_consensus"]):
+        manual_overrides.update({
+            "analyst_target_low": alpha_price_target.get("target_low"),
+            "analyst_target_median": alpha_price_target.get("target_median") or alpha_price_target.get("target_consensus"),
+            "analyst_target_consensus": alpha_price_target.get("target_consensus"),
+            "analyst_target_high": alpha_price_target.get("target_high"),
+            "analyst_target_source": alpha_price_target.get("source") or "Alpha Vantage OVERVIEW AnalystTargetPrice",
+        })
     consensus = getattr(request, "consensus", None)
     db_consensus = _load_consensus_from_db(facts.ticker) if consensus is None else None
     history = manual_overrides.get("multiples_history") or _load_history_from_db(facts.ticker)
     peer_snapshot = manual_overrides.get("peer_snapshot") or _load_peer_snapshot_from_db(facts.ticker)
 
-    company_type = infer_company_type(facts, facts.company_profile, facts.annual_history)
-    company_state = SPECIAL_PROFILES.get(facts.ticker, {}).get("company_state", company_type)
-    scenarios = build_scenarios(company_type, request, manual_overrides)
+    assumption_build = build_assumptions(facts, request, manual_overrides)
+    company_type = assumption_build["company_type"]
+    company_state = assumption_build["company_state"]
+    scenarios = assumption_build["scenarios"]
     forward_estimates = resolve_forward_estimates(facts, consensus, facts.annual_history, db_consensus, company_type, scenarios)
     forward = forward_estimates.to_dict()
     capex_split = split_capex(facts, facts.annual_history, company_type, manual_overrides if getattr(request, "use_capex_split", True) else {"maintenance_capex_ratio": 1})
@@ -278,12 +299,14 @@ def run_target_price_calculator(facts_dict: dict[str, Any], request: Any | None 
         dcf_outputs[key] = run_three_stage_dcf(facts, scenario, capex_split)
         dcf_outputs[key]["capex_split"] = capex_split
     dcf_sensitivity = dcf_sensitivity_table(facts, scenarios["base"], capex_split)
-    multiples = derive_reasonable_multiples(company_type, facts, forward, peer_snapshot, history)
+    peer_snapshot_for_multiples = filter_peer_snapshot_for_multiples(company_type, peer_snapshot)
+    multiples = derive_reasonable_multiples(company_type, facts, forward, peer_snapshot_for_multiples, history)
     reverse_dcf_output = reverse_dcf(facts, scenarios["base"], capex_split) if getattr(request, "use_reverse_dcf", True) else {}
-    reverse_multiples_output = reverse_multiples(facts, forward, multiples, peer_snapshot)
+    reverse_multiples_output = reverse_multiples(facts, forward, multiples, peer_snapshot_for_multiples)
     reverse_expectations = {**reverse_dcf_output, "multiples": reverse_multiples_output}
+    simple_fcf_dcf = run_simple_fcf_dcf(facts, manual_overrides)
 
-    warnings = list(capex_split.get("warnings", []))
+    warnings = list(capex_split.get("warnings", [])) + list(assumption_build.get("warnings", []))
     for item in forward.values():
         if item.get("source") == "system_estimate":
             warnings.append("forward consensus 缺失，系统使用历史增长和利润率估算，非市场共识。")
@@ -329,6 +352,7 @@ def run_target_price_calculator(facts_dict: dict[str, Any], request: Any | None 
         "quality_breakdown": quality_breakdown,
         "forward_estimates": forward,
         "scenarios": scenarios,
+        "assumption_build": assumption_build,
         "capex_split": capex_split,
         "dcf": {
             "bear": dcf_outputs["bear"],
@@ -338,6 +362,7 @@ def run_target_price_calculator(facts_dict: dict[str, Any], request: Any | None 
         },
         "multiples": multiples,
         "valuation_layers": valuation_layers,
+        "simple_fcf_dcf": simple_fcf_dcf,
         "model_weighted_aggregate": _target_prices(aggregate, facts.price),
         "model_outputs": model_dicts,
         "reverse_expectations": reverse_expectations,
@@ -358,6 +383,8 @@ def _key_risks(company_type: str, reverse_dcf_output: dict[str, Any], data_quali
         risks.append("高成长估值对收入增速放缓和倍数收缩高度敏感。")
     if company_type == "memory_semiconductor":
         risks.append("存储半导体估值对 HBM 需求、DRAM/NAND 价格和资本开支周期高度敏感。")
+    if company_type == "industrial":
+        risks.append("工业制造公司估值对订单周期、交付节奏、供应链和资本开支回报较敏感。")
     if capex_split.get("growth_capex", 0) > capex_split.get("maintenance_capex", 0):
         risks.append("成长 CAPEX 需要在未来转化为更高收入或现金流，否则 DCF 会下修。")
     if data_quality.get("system_estimates"):

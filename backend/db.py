@@ -98,6 +98,27 @@ def init_db() -> None:
                 value TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS external_api_cache (
+                provider TEXT NOT NULL,
+                cache_key TEXT NOT NULL,
+                endpoint TEXT DEFAULT '',
+                status TEXT DEFAULT 'ok',
+                payload_json TEXT DEFAULT '{}',
+                fetched_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                PRIMARY KEY (provider, cache_key)
+            );
+
+            CREATE TABLE IF NOT EXISTS external_api_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL,
+                endpoint TEXT DEFAULT '',
+                cache_key TEXT DEFAULT '',
+                cache_hit INTEGER DEFAULT 0,
+                status TEXT DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS consensus_estimates (
                 ticker TEXT PRIMARY KEY,
                 fiscal_year INTEGER,
@@ -313,6 +334,34 @@ def migrate_db(conn: sqlite3.Connection) -> None:
         if name not in queue_columns:
             conn.execute(f"ALTER TABLE research_queue ADD COLUMN {name} {definition}")
 
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS external_api_cache (
+            provider TEXT NOT NULL,
+            cache_key TEXT NOT NULL,
+            endpoint TEXT DEFAULT '',
+            status TEXT DEFAULT 'ok',
+            payload_json TEXT DEFAULT '{}',
+            fetched_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            PRIMARY KEY (provider, cache_key)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS external_api_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL,
+            endpoint TEXT DEFAULT '',
+            cache_key TEXT DEFAULT '',
+            cache_hit INTEGER DEFAULT 0,
+            status TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
 
 def seed_defaults(conn: sqlite3.Connection) -> None:
     ts = now_iso()
@@ -322,7 +371,9 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
         "default_terminal_growth": 0.025,
         "default_ten_year_yield": 0.045,
         "default_risk_discount": 0.03,
+        "fmp_api_key": "",
         "alpha_vantage_api_key": "",
+        "finnhub_api_key": "",
         "fred_api_key": "",
         "default_discovery_pool": "sp500",
         "llm_enabled": False,

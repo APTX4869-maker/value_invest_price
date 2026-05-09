@@ -90,6 +90,10 @@ function layerHelp(key, layer) {
   return "";
 }
 
+function formatRange(range) {
+  return `${formatMoney(range?.low, false)} - ${formatMoney(range?.high, false)}`;
+}
+
 function LayerCard({ name, layer, weight }) {
   if (!layer?.base) return null;
   return (
@@ -98,8 +102,97 @@ function LayerCard({ name, layer, weight }) {
         <span>{layerTitle(name)}</span>
         <strong>{formatMoney(layer.base, false)}</strong>
       </div>
-      <p>{formatMoney(layer.range_low, false)} - {formatMoney(layer.range_high, false)}</p>
+      <p>{formatRange({ low: layer.range_low, high: layer.range_high })}</p>
       <small>{layerHelp(name, layer)} 本次综合权重 {formatPercent(weight || 0)}。</small>
+    </div>
+  );
+}
+
+function ComparisonCard({ subtitle, range, base, current, note }) {
+  const upside = current && base ? (base - current) / current : 0;
+  return (
+    <div className="valuation-comparison-card">
+      <span>{subtitle}</span>
+      <strong>{formatMoney(base, false)}</strong>
+      <p>{formatRange(range)}</p>
+      <small>相对当前价 {formatPercent(upside)}。{note}</small>
+    </div>
+  );
+}
+
+function AssumptionCard({ title, value, range, detail }) {
+  return (
+    <div className="assumption-card">
+      <span>{title}</span>
+      <strong>{value}</strong>
+      {range ? <p>{range}</p> : null}
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function sourcePercent(value) {
+  return value === null || value === undefined ? "缺失" : formatPercent(value);
+}
+
+function coverageText(status) {
+  if (status === "ok") return "已覆盖";
+  if (status === "partial") return "部分覆盖";
+  return "缺口";
+}
+
+function coverageTone(status) {
+  if (status === "ok") return "good";
+  if (status === "partial") return "neutral";
+  return "warn";
+}
+
+function DataCoveragePanel({ dataQuality }) {
+  const coverage = dataQuality?.data_coverage || {};
+  const items = coverage.items || {};
+  const apiUsage = dataQuality?.api_usage?.providers || {};
+  const sourceSummary = dataQuality?.source_summary || {};
+  if (!Object.keys(items).length && !Object.keys(sourceSummary).length) return null;
+  return (
+    <div className="panel simple-panel">
+      <div className="simple-section-heading">
+        <div>
+          <span className="eyebrow">数据来源</span>
+          <h3>这次估值的数据够不够？</h3>
+        </div>
+        <Badge tone={coverage.level === "high" ? "good" : coverage.level === "medium" ? "neutral" : "warn"}>
+          覆盖评分 {coverage.score ?? dataQuality.score}/100
+        </Badge>
+      </div>
+      <div className="coverage-grid">
+        {Object.entries(items).map(([key, item]) => (
+          <div className={`coverage-card ${item.status || "missing"}`} key={key}>
+            <div>
+              <strong>{item.label}</strong>
+              <Badge tone={coverageTone(item.status)}>{coverageText(item.status)}</Badge>
+            </div>
+            <p>{item.detail}</p>
+            <small>来源：{item.source}</small>
+          </div>
+        ))}
+      </div>
+      <div className="source-summary-grid">
+        {Object.entries(sourceSummary).map(([key, value]) => (
+          <div key={key}>
+            <span>{key}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
+      {Object.keys(apiUsage).length ? (
+        <div className="api-budget-list">
+          {Object.entries(apiUsage).map(([provider, usage]) => (
+            <span key={provider}>
+              {provider}: 24h 网络 {usage.network_calls_24h || 0} 次，缓存命中 {usage.cache_hits_24h || 0} 次，网络失败 {usage.errors_24h || 0} 次，失败缓存 {usage.cached_error_hits_24h || 0} 次
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -148,6 +241,33 @@ export function ValuationResult({ result }) {
   const layerWeights = valuationLayers.weights || {};
   const rating = result.rating || result.judgement;
   const topModels = modelRows.filter((item) => item.weight > 0).slice(0, 4);
+  const dcfModel = modelRows.find((item) => (item.model || item.key) === "three_stage_dcf");
+  const fcffDcfTarget = dcfModel?.base
+    ? {
+        base: dcfModel.base,
+        range: { low: dcfModel.bear ?? dcfModel.low, high: dcfModel.bull ?? dcfModel.high },
+      }
+    : result.intrinsic_value_3y?.base
+      ? {
+          base: result.intrinsic_value_3y.base,
+          range: { low: result.intrinsic_value_3y.range_low, high: result.intrinsic_value_3y.range_high },
+        }
+      : null;
+  const simpleDcf = result.simple_fcf_dcf;
+  const assumptionBuild = result.assumption_build || {};
+  const classification = assumptionBuild.classification || {};
+  const growthAssumptions = assumptionBuild.growth_assumptions || {};
+  const marginAssumptions = assumptionBuild.margin_assumptions || {};
+  const discountAssumption = assumptionBuild.discount_rate || {};
+  const opMargin = marginAssumptions.operating_margin || {};
+  const fcfMargin = marginAssumptions.fcf_margin || {};
+  const simpleDcfTarget = simpleDcf?.base
+    ? {
+        base: simpleDcf.base,
+        range: { low: simpleDcf.range_low, high: simpleDcf.range_high },
+      }
+    : null;
+  const finalVsDcfGap = fcffDcfTarget?.base ? (target.base - fcffDcfTarget.base) / fcffDcfTarget.base : 0;
   const warningCount = (dataQuality.warnings || []).length;
 
   return (
@@ -190,6 +310,50 @@ export function ValuationResult({ result }) {
         </div>
       </div>
 
+      {fcffDcfTarget?.base || simpleDcfTarget?.base ? (
+        <div className="panel simple-panel">
+          <div className="simple-section-heading">
+            <div>
+              <span className="eyebrow">交叉对比</span>
+              <h3>最终目标价体系 vs 两种 DCF</h3>
+            </div>
+            {fcffDcfTarget?.base ? <Badge tone={Math.abs(finalVsDcfGap) > 0.25 ? "warn" : "neutral"}>
+              两者差异 {formatPercent(finalVsDcfGap)}
+            </Badge> : null}
+          </div>
+          <div className="valuation-comparison-grid">
+            <ComparisonCard
+              subtitle="分层综合结果"
+              base={target.base}
+              range={{ low: target.bear, high: target.bull }}
+              current={result.current_price}
+              note="综合 DCF 概率区间、市场倍数层和可选外部目标价。"
+            />
+            {fcffDcfTarget?.base ? (
+              <ComparisonCard
+                subtitle="三阶段 FCFF DCF"
+                base={fcffDcfTarget.base}
+                range={fcffDcfTarget.range}
+                current={result.current_price}
+                note="用收入、利润率、FCF margin、贴现率和永续增长重建现金流。"
+              />
+            ) : null}
+            {simpleDcfTarget?.base ? (
+              <ComparisonCard
+                subtitle="Excel 口径简化 DCF"
+                base={simpleDcfTarget.base}
+                range={simpleDcfTarget.range}
+                current={result.current_price}
+                note="用最新 FCF、7%-15% 增长阶梯、15% 折现和当前 FCF 倍数退出价值。"
+              />
+            ) : null}
+          </div>
+          <p className="muted">
+            三阶段 FCFF DCF 更适合严肃建模；Excel 口径简化 DCF 更适合和表格快速对表。简化 DCF 用当前市场 FCF 倍数做退出价值，所以只作为交叉校验，不直接参与最终目标价。
+          </p>
+        </div>
+      ) : null}
+
       {valuationLayers.intrinsic || valuationLayers.market || valuationLayers.analyst ? (
         <div className="panel simple-panel">
           <div className="simple-section-heading">
@@ -202,6 +366,52 @@ export function ValuationResult({ result }) {
             <LayerCard name="intrinsic" layer={valuationLayers.intrinsic} weight={layerWeights.intrinsic} />
             <LayerCard name="market" layer={valuationLayers.market} weight={layerWeights.market} />
             <LayerCard name="analyst" layer={valuationLayers.analyst} weight={layerWeights.analyst} />
+          </div>
+        </div>
+      ) : null}
+
+      <DataCoveragePanel dataQuality={dataQuality} />
+
+      {assumptionBuild.scenarios ? (
+        <div className="panel simple-panel">
+          <div className="simple-section-heading">
+            <div>
+              <span className="eyebrow">关键假设</span>
+              <h3>这些参数是怎么来的？</h3>
+            </div>
+            <Badge tone={classification.confidence === "high" || classification.confidence === "medium_high" ? "good" : "warn"}>
+              类型判断：{result.company_state || result.company_type}
+            </Badge>
+          </div>
+          <div className="assumption-grid">
+            <AssumptionCard
+              title="5 年收入 CAGR"
+              value={formatPercent(growthAssumptions.base)}
+              range={`${formatPercent(growthAssumptions.bear)} / ${formatPercent(growthAssumptions.base)} / ${formatPercent(growthAssumptions.bull)}`}
+              detail={`3年历史 ${sourcePercent(growthAssumptions.sources?.revenue_cagr_3y)}，5年历史 ${sourcePercent(growthAssumptions.sources?.revenue_cagr_5y)}，最近季度 ${sourcePercent(growthAssumptions.sources?.recent_annualized_growth)}，公司先验 ${sourcePercent(growthAssumptions.sources?.company_prior)}，行业先验 ${sourcePercent(growthAssumptions.sources?.industry_prior)}。`}
+            />
+            <AssumptionCard
+              title="终局经营利润率"
+              value={formatPercent(opMargin.base)}
+              range={`${formatPercent(opMargin.bear)} / ${formatPercent(opMargin.base)} / ${formatPercent(opMargin.bull)}`}
+              detail={`当前 ${sourcePercent(opMargin.sources?.current)}，历史中位 ${sourcePercent(opMargin.sources?.history_median_recent)}，行业先验 ${sourcePercent(opMargin.sources?.industry_prior)}。`}
+            />
+            <AssumptionCard
+              title="终局 FCF margin"
+              value={formatPercent(fcfMargin.base)}
+              range={`${formatPercent(fcfMargin.bear)} / ${formatPercent(fcfMargin.base)} / ${formatPercent(fcfMargin.bull)}`}
+              detail={`当前 ${sourcePercent(fcfMargin.sources?.current)}，历史中位 ${sourcePercent(fcfMargin.sources?.history_median_recent)}，行业先验 ${sourcePercent(fcfMargin.sources?.industry_prior)}。`}
+            />
+            <AssumptionCard
+              title="贴现率"
+              value={formatPercent(discountAssumption.base)}
+              range={`${formatPercent(discountAssumption.bear)} / ${formatPercent(discountAssumption.base)} / ${formatPercent(discountAssumption.bull)}`}
+              detail={`无风险 ${formatPercent(discountAssumption.risk_free_rate)} + 股权风险溢价 ${formatPercent(discountAssumption.equity_risk_premium)} + 公司风险 ${formatPercent(discountAssumption.company_risk_premium)}。`}
+            />
+          </div>
+          <div className="assumption-notes">
+            {(classification.reasons || []).map((reason) => <p className="muted" key={reason}>{reason}</p>)}
+            {(assumptionBuild.warnings || []).slice(0, 3).map((warning) => <p className="muted" key={warning}>{warning}</p>)}
           </div>
         </div>
       ) : null}
@@ -279,7 +489,7 @@ export function ValuationResult({ result }) {
             <Stat key={key} label={`${key} · ${sourceLabel(item.source)}`} value={key.includes("growth") ? formatPercent(item.value) : formatMoney(item.value)} />
           ))}
         </div>
-        <pre>{JSON.stringify({ valuation_layers: result.valuation_layers, model_weighted_aggregate: result.model_weighted_aggregate, capex_split: result.capex_split, dcf_sensitivity: result.dcf?.sensitivity, key_risks: result.key_risks }, null, 2)}</pre>
+        <pre>{JSON.stringify({ assumption_build: result.assumption_build, valuation_layers: result.valuation_layers, simple_fcf_dcf: result.simple_fcf_dcf, model_weighted_aggregate: result.model_weighted_aggregate, capex_split: result.capex_split, dcf_sensitivity: result.dcf?.sensitivity, key_risks: result.key_risks }, null, 2)}</pre>
       </details>
     </>
   );
