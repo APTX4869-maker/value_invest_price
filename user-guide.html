@@ -1,0 +1,995 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Value Study 使用向导</title>
+  <style>
+    :root{
+      --bg: #f6f9fe;
+      --panel: #ffffff;
+      --panel-2: #eef3fb;
+      --panel-3: #e8f0fe;
+      --line: #d8e0ec;
+      --line-2: #c9d3e1;
+      --text: #1f1f1f;
+      --muted: #5f6368;
+      --blue: #1a73e8;
+      --blue-2: #4285f4;
+      --green: #188038;
+      --amber: #b06000;
+      --shadow: 0 20px 60px rgba(32, 33, 36, 0.08);
+      --radius-xl: 32px;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --radius-sm: 14px;
+      --max: 1180px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 18% 14%, rgba(26,115,232,0.06), transparent 26%),
+        radial-gradient(circle at 84% 18%, rgba(24,128,56,0.05), transparent 22%),
+        linear-gradient(180deg, #fbfdff 0%, var(--bg) 100%);
+      font-family: "Google Sans", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      letter-spacing: 0;
+      overflow: hidden;
+    }
+
+    button, input {
+      font: inherit;
+    }
+
+    .app {
+      height: 100vh;
+      padding: 20px 28px 48px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .shell {
+      width: min(calc((100vh - 88px) * 16 / 9), calc(100vw - 56px));
+      position: relative;
+    }
+
+    .topbar {
+      display: none;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 44px;
+      height: 44px;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #e8f0fe 0%, #ffffff 100%);
+      border: 1px solid var(--line);
+      display: grid;
+      place-items: center;
+      box-shadow: 0 10px 24px rgba(26,115,232,0.08);
+      flex: none;
+    }
+
+    .brand h1 {
+      font-size: 18px;
+      line-height: 1.15;
+      margin: 0;
+    }
+
+    .brand p,
+    .status {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .top-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.74);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      box-shadow: 0 8px 20px rgba(32,33,36,0.04);
+      backdrop-filter: blur(10px);
+      white-space: nowrap;
+    }
+
+    .hero {
+      display: none;
+    }
+
+    .hero-card,
+    .hero-visual,
+    .slide {
+      background: var(--panel);
+      border: 1px solid rgba(217,225,236,0.95);
+      border-radius: 22px;
+      box-shadow: 0 28px 80px rgba(32, 33, 36, 0.10);
+    }
+
+    .hero-card {
+      padding: 30px;
+      position: relative;
+      overflow: hidden;
+      min-height: 340px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      justify-self: start;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--panel-3);
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .hero-card h2 {
+      margin: 16px 0 12px;
+      font-size: clamp(30px, 3vw, 48px);
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      max-width: 12em;
+    }
+
+    .hero-card p {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.7;
+      color: var(--muted);
+      max-width: 60ch;
+    }
+
+    .hero-list {
+      margin: 22px 0 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 10px;
+    }
+
+    .hero-list li {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      color: #374151;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .hero-dot {
+      width: 10px;
+      height: 10px;
+      margin-top: 6px;
+      border-radius: 50%;
+      background: var(--blue);
+      box-shadow: 0 0 0 6px rgba(26,115,232,0.08);
+      flex: none;
+    }
+
+    .hero-visual {
+      min-height: 340px;
+      padding: 26px;
+      display: grid;
+      gap: 16px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero-visual::before {
+      content: "";
+      position: absolute;
+      inset: auto -12% -22% auto;
+      width: 320px;
+      height: 320px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(26,115,232,0.14), rgba(26,115,232,0.03) 54%, transparent 68%);
+      pointer-events: none;
+    }
+
+    .mini-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .mini-toolbar strong { color: var(--text); }
+
+    .board {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .board-row {
+      display: grid;
+      grid-template-columns: 116px 1fr 72px;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.9);
+      border: 1px solid rgba(216,224,236,0.9);
+    }
+
+    .board-row span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .bar {
+      position: relative;
+      height: 10px;
+      border-radius: 999px;
+      background: #e9eef6;
+      overflow: hidden;
+    }
+
+    .bar > i {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 42%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--blue), var(--blue-2));
+      animation: sweep 2.8s ease-in-out infinite;
+    }
+
+    @keyframes sweep {
+      0% { transform: translateX(-6%); width: 26%; opacity: 0.72; }
+      50% { transform: translateX(44%); width: 34%; opacity: 1; }
+      100% { transform: translateX(84%); width: 18%; opacity: 0.72; }
+    }
+
+    .stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      height: auto;
+      min-height: 0;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transform: translateY(12px) scale(0.985);
+      pointer-events: none;
+      transition: opacity .28s ease, transform .28s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .slide.active {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+      z-index: 2;
+    }
+
+    .slide-inner {
+      width: 1280px;
+      height: 720px;
+      padding: 54px 64px 50px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 420px;
+      grid-template-rows: auto 1fr;
+      column-gap: 58px;
+      row-gap: 24px;
+      transform-origin: center center;
+      will-change: transform;
+    }
+
+    .slide-copy {
+      display: grid;
+      gap: 15px;
+      align-content: start;
+      grid-column: 1;
+      grid-row: 1 / span 2;
+      max-width: none;
+    }
+
+    .slide-copy h3 {
+      margin: 0;
+      font-size: 46px;
+      line-height: 1.05;
+      letter-spacing: 0;
+      max-width: 13em;
+    }
+
+    .slide-copy p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.58;
+      font-size: 18px;
+      max-width: 34em;
+    }
+
+    .steps {
+      display: grid;
+      gap: 0;
+      margin-top: 8px;
+      max-width: 660px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 14px;
+      align-items: start;
+      padding: 14px 0 15px;
+      border-bottom: 1px solid rgba(216,224,236,0.95);
+      background: transparent;
+      border-radius: 0;
+    }
+
+    .step .n {
+      width: 30px;
+      height: 30px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      background: #fff;
+      border: 1px solid var(--line);
+      color: var(--blue);
+      font-weight: 700;
+      font-size: 14px;
+      flex: none;
+    }
+
+    .step strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 17px;
+    }
+
+    .step span {
+      display: block;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 15px;
+    }
+
+    .slide-side {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 18px;
+      align-items: stretch;
+      align-content: center;
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      padding-top: 0;
+      border-top: 0;
+      background: transparent;
+      border-radius: 0;
+      min-height: 0;
+    }
+
+    .slide-side h4 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .slide-side p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.58;
+      font-size: 16px;
+    }
+
+    .callout {
+      padding: 0 0 0 14px;
+      border-left: 4px solid #d2e3fc;
+      border-radius: 0;
+      background: transparent;
+      color: #374151;
+      line-height: 1.58;
+      font-size: 16px;
+      margin-bottom: 0;
+    }
+
+    .checklist {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 11px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checklist li {
+      display: flex;
+      gap: 11px;
+      align-items: flex-start;
+      color: #374151;
+      line-height: 1.45;
+      font-size: 15px;
+    }
+
+    .check {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #d2e3fc;
+      margin-top: 3px;
+      flex: none;
+      box-shadow: inset 0 0 0 4px rgba(255,255,255,0.9);
+    }
+
+    .img-shell {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    .visual-box {
+      min-height: 340px;
+      height: 340px;
+      border-radius: 0;
+      background: transparent;
+      border: 0;
+      overflow: hidden;
+      position: relative;
+      padding: 0;
+      width: 100%;
+    }
+
+    .visual-box svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .caption {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .caption strong { color: var(--text); }
+
+    .progress-shell {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      width: min(780px, calc(100vw - 40px));
+      z-index: 20;
+      pointer-events: none;
+    }
+
+    .progress-card {
+      pointer-events: auto;
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      padding: 0;
+      display: grid;
+      gap: 0;
+    }
+
+    .progress-bar {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 5px;
+    }
+
+    .progress-btn {
+      position: relative;
+      appearance: none;
+      border: 0;
+      background: #e9eef6;
+      color: #6b7280;
+      height: 5px;
+      border-radius: 999px;
+      cursor: pointer;
+      overflow: hidden;
+      padding: 0;
+      transition: transform .18s ease, background .18s ease;
+    }
+
+    .progress-btn::before {
+      content: none;
+    }
+
+    .progress-btn:hover {
+      transform: translateY(-1px);
+      background: #d7e3f8;
+    }
+
+    .progress-btn.active {
+      background: #d2e3fc;
+    }
+
+    .progress-btn.active::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--blue), var(--blue-2));
+    }
+
+    .float-note {
+      position: absolute;
+      right: 28px;
+      top: 18px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.92);
+      border: 1px solid rgba(216,224,236,0.95);
+      color: var(--muted);
+      font-size: 13px;
+      box-shadow: 0 10px 24px rgba(32,33,36,0.05);
+    }
+
+    .pulse {
+      animation: pulse 2.6s ease-in-out infinite;
+      transform-origin: center;
+    }
+
+    .pulse.delay-1 { animation-delay: .35s; }
+    .pulse.delay-2 { animation-delay: .7s; }
+
+    @keyframes pulse {
+      0%,100% { opacity: .25; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.16); }
+    }
+
+    .flow-line {
+      animation: dash 3.2s linear infinite;
+    }
+
+    @keyframes dash {
+      from { stroke-dashoffset: 0; }
+      to { stroke-dashoffset: -80; }
+    }
+
+    .slide svg text {
+      font-family: inherit;
+    }
+
+    .hidden-mobile { display: block; }
+
+    @media (max-width: 1080px) {
+      .app { padding: 14px 16px 44px; }
+      .shell { width: min(calc((100vh - 72px) * 16 / 9), calc(100vw - 32px)); }
+      .hidden-mobile { display: none; }
+    }
+
+    @media (max-width: 720px) {
+      .app { padding: 10px 10px 36px; }
+      .shell { width: min(calc((100vh - 56px) * 16 / 9), calc(100vw - 20px)); }
+      .slide { border-radius: 16px; }
+      .progress-shell { bottom: 12px; width: calc(100vw - 28px); }
+      .progress-bar { gap: 4px; }
+      .progress-btn { height: 5px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <div class="shell">
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-mark">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 8.5C6 6.01472 8.01472 4 10.5 4H16V8.5C16 10.9853 13.9853 13 11.5 13H6V8.5Z" fill="#1A73E8" opacity=".16"/>
+              <path d="M8 15.5C8 13.0147 10.0147 11 12.5 11H18V15.5C18 17.9853 15.9853 20 13.5 20H8V15.5Z" fill="#4285F4" opacity=".18"/>
+              <path d="M6 8.5C6 6.01472 8.01472 4 10.5 4H16V8.5C16 10.9853 13.9853 13 11.5 13H6V8.5Z" stroke="#1A73E8" stroke-width="1.4"/>
+              <path d="M8 15.5C8 13.0147 10.0147 11 12.5 11H18V15.5C18 17.9853 15.9853 20 13.5 20H8V15.5Z" stroke="#1A73E8" stroke-width="1.4"/>
+            </svg>
+          </div>
+          <div>
+            <h1>Value Study 使用向导</h1>
+            <p>只讲你会实际用到的顺序</p>
+          </div>
+        </div>
+        <div class="top-meta">
+          <span class="pill">简约扁平风格</span>
+          <span class="pill">SVG 动效</span>
+          <span class="pill hidden-mobile">← / → 切换</span>
+        </div>
+      </div>
+
+      <section class="stage" aria-live="polite">
+        <article class="slide active" data-slide="0">
+          <div class="slide-copy">
+            <div class="eyebrow">Page 1</div>
+            <h3>你打开网站后，就按这条线走</h3>
+            <p>这份指南只服务一个目标：让你不用记住所有功能，也能完成一次完整的公司研究。每次不知道下一步做什么，就回到这条流程。</p>
+            <div class="trail" style="color: var(--blue); font-weight: 600; font-size: 14px;">发现雷达 → 研究队列 → 公司档案 → 估值 → 同行 → 备忘录 → 历史</div>
+            <div class="steps">
+              <div class="step"><div class="n">1</div><div><strong>不知道研究谁时</strong><span>先去发现雷达，从股票池里挑线索。</span></div></div>
+              <div class="step"><div class="n">2</div><div><strong>有兴趣但没结论时</strong><span>放进研究队列，给它安排下一步动作。</span></div></div>
+              <div class="step"><div class="n">3</div><div><strong>准备认真看一家公司时</strong><span>进入公司档案，按结论、业务、估值、同行、备忘录顺序看。</span></div></div>
+            </div>
+          </div>
+          <div class="slide-side">
+            <div class="callout">不要把这个网站当成很多页面的集合。把它当成一个研究流程：先发现，再筛选，再形成自己的判断。</div>
+            <ul class="checklist">
+              <li><span class="check"></span><span>第一次用：按 1 到 8 页走一遍。</span></li>
+              <li><span class="check"></span><span>平时用：直接从研究队列开始。</span></li>
+              <li><span class="check"></span><span>结果异常：去历史和设置排查数据源。</span></li>
+            </ul>
+            <div class="visual-box">
+              <svg viewBox="0 0 520 320" aria-hidden="true">
+                <defs>
+                  <linearGradient id="startLg" x1="0" x2="1">
+                    <stop offset="0%" stop-color="#1A73E8"/>
+                    <stop offset="100%" stop-color="#4285F4"/>
+                  </linearGradient>
+                </defs>
+                <path d="M48 224C106 156 160 148 210 178C260 208 308 222 360 188C404 160 444 144 474 138" fill="none" stroke="url(#startLg)" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 12" class="flow-line"/>
+                <circle class="pulse" cx="48" cy="224" r="10" fill="#D2E3FC"/>
+                <circle class="pulse delay-1" cx="210" cy="178" r="10" fill="#D2E3FC"/>
+                <circle class="pulse delay-2" cx="360" cy="188" r="10" fill="#D2E3FC"/>
+                <rect x="28" y="36" width="140" height="36" rx="18" fill="#E8F0FE"/>
+                <rect x="188" y="36" width="138" height="36" rx="18" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="344" y="36" width="142" height="36" rx="18" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <text x="58" y="60" font-size="14" fill="#1F1F1F" font-weight="700">先认路</text>
+                <text x="214" y="60" font-size="14" fill="#1F1F1F" font-weight="700">再研究</text>
+                <text x="382" y="60" font-size="14" fill="#1F1F1F" font-weight="700">再判断</text>
+              </svg>
+            </div>
+          </div>
+        </article>
+
+        <article class="slide" data-slide="1">
+          <div class="slide-copy">
+            <div class="eyebrow">Page 2</div>
+            <h3>发现雷达：你不知道看谁时，从这里开始</h3>
+            <p>打开“发现雷达”后，先选股票池，再扫描。它的作用不是给结论，而是帮你把一堆公司缩小成几个值得继续看的候选。</p>
+            <div class="steps">
+              <div class="step"><div class="n">1</div><div><strong>先选池子</strong><span>默认用 S&P 500；想看科技成长时切 QQQ；自己有名单就用自定义池。</span></div></div>
+              <div class="step"><div class="n">2</div><div><strong>再看“为什么排前面”</strong><span>重点读估值、质量、护城河、数据缺口这些理由，不要只看分数。</span></div></div>
+              <div class="step"><div class="n">3</div><div><strong>只把有兴趣的加入队列</strong><span>先加 3 到 5 个，不要一次塞太多，否则后面很难研究完。</span></div></div>
+            </div>
+          </div>
+          <div class="slide-side">
+            <h4>你在这里只做一件事</h4>
+            <p>判断“这家公司值不值得进入下一步”。不要在发现雷达里纠结最终目标价，也不要把排名当成买卖建议。</p>
+            <div class="visual-box">
+              <svg viewBox="0 0 520 320" aria-hidden="true">
+                <circle cx="210" cy="158" r="92" fill="none" stroke="#D2E3FC" stroke-width="2"/>
+                <circle cx="210" cy="158" r="56" fill="none" stroke="#D2E3FC" stroke-width="2"/>
+                <circle cx="210" cy="158" r="20" fill="#1A73E8" opacity=".16"/>
+                <path d="M210 66V250M118 158H302M145 93L275 223M275 93L145 223" stroke="#D8E0EC" stroke-width="2"/>
+                <circle class="pulse" cx="278" cy="120" r="10" fill="#1A73E8" opacity=".18"/>
+                <circle class="pulse delay-1" cx="252" cy="210" r="10" fill="#34A853" opacity=".18"/>
+                <circle class="pulse delay-2" cx="158" cy="112" r="10" fill="#F9AB00" opacity=".18"/>
+                <rect x="350" y="46" width="126" height="32" rx="16" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="350" y="90" width="154" height="32" rx="16" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="350" y="134" width="140" height="32" rx="16" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="350" y="178" width="112" height="32" rx="16" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="350" y="222" width="150" height="32" rx="16" fill="#FFFFFF" stroke="#D8E0EC"/>
+              </svg>
+            </div>
+          </div>
+        </article>
+
+        <article class="slide" data-slide="2">
+          <div class="slide-copy">
+            <div class="eyebrow">Page 3</div>
+            <h3>研究队列：这是你平时最常打开的首页</h3>
+            <p>如果你已经有一批想看的公司，平时不要从发现雷达开始，而是直接进研究队列。这里告诉你每家公司现在卡在哪一步。</p>
+            <div class="steps">
+              <div class="step"><div class="n">1</div><div><strong>先看状态列</strong><span>候选只是想看；初筛通过才值得继续；深度研究中才需要认真补资料。</span></div></div>
+              <div class="step"><div class="n">2</div><div><strong>再看下一步动作</strong><span>如果下一步是空的，先补一句，例如“刷新数据”“检查同行”“写备忘录”。</span></div></div>
+              <div class="step"><div class="n">3</div><div><strong>每天只推进少数几家公司</strong><span>选一家公司点进档案，不要同时打开太多研究线。</span></div></div>
+            </div>
+          </div>
+          <div class="slide-side">
+            <h4>队列不是收藏夹</h4>
+            <p>它应该像你的研究待办板。每一家公司都要能回答：我为什么关注它，现在研究到哪一步，下一步要补什么。</p>
+            <div class="visual-box">
+              <svg viewBox="0 0 520 320" aria-hidden="true">
+                <rect x="48" y="42" width="130" height="68" rx="18" fill="#E8F0FE" stroke="#D8E0EC"/>
+                <rect x="194" y="42" width="130" height="68" rx="18" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="340" y="42" width="130" height="68" rx="18" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="48" y="132" width="422" height="68" rx="18" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="48" y="222" width="266" height="48" rx="16" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="328" y="222" width="142" height="48" rx="16" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <circle class="pulse" cx="112" cy="76" r="8" fill="#1A73E8" opacity=".18"/>
+                <circle class="pulse delay-1" cx="258" cy="76" r="8" fill="#34A853" opacity=".18"/>
+                <circle class="pulse delay-2" cx="404" cy="76" r="8" fill="#F9AB00" opacity=".18"/>
+                <text x="74" y="82" font-size="15" fill="#1F1F1F" font-weight="700">候选</text>
+                <text x="222" y="82" font-size="15" fill="#1F1F1F" font-weight="700">深研中</text>
+                <text x="370" y="82" font-size="15" fill="#1F1F1F" font-weight="700">已结论</text>
+                <text x="76" y="172" font-size="14" fill="#5F6368">下一步动作：先刷新财务，再看估值</text>
+                <text x="76" y="252" font-size="14" fill="#5F6368">标签：AI / 半导体 / 待复盘</text>
+              </svg>
+            </div>
+          </div>
+        </article>
+
+        <article class="slide" data-slide="3">
+          <div class="slide-copy">
+            <div class="eyebrow">Page 4</div>
+            <h3>公司档案：进入一家公司后，先看总判断</h3>
+            <p>点进公司档案后，不要马上翻所有标签页。先看顶部的一页纸结论：系统现在认为它便宜、合理、偏贵，还是数据不足。</p>
+            <div class="steps">
+              <div class="step"><div class="n">1</div><div><strong>先看当前判断</strong><span>便宜、合理、偏贵、不确定，这决定你后面要不要继续花时间。</span></div></div>
+              <div class="step"><div class="n">2</div><div><strong>再看业务和财务</strong><span>先搞懂它怎么赚钱，收入、利润、现金流是不是有质量。</span></div></div>
+              <div class="step"><div class="n">3</div><div><strong>最后再看证据和 AI 初稿</strong><span>SEC 和 AI 研究助手只是帮你整理材料，最终判断要写进备忘录。</span></div></div>
+            </div>
+          </div>
+          <div class="slide-side">
+            <h4>你在这里的目标</h4>
+            <p>用 3 到 5 分钟判断：这家公司是值得深挖，还是先放回队列以后再看。</p>
+            <div class="visual-box">
+              <svg viewBox="0 0 520 320" aria-hidden="true">
+                <rect x="34" y="34" width="452" height="54" rx="16" fill="#E8F0FE" stroke="#D8E0EC"/>
+                <rect x="34" y="104" width="138" height="174" rx="20" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="186" y="104" width="138" height="174" rx="20" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="338" y="104" width="148" height="174" rx="20" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <path d="M58 126H150M58 148H132M58 170H138" stroke="#D8E0EC" stroke-width="6" stroke-linecap="round"/>
+                <path d="M210 126H282M210 148H272M210 170H266" stroke="#D8E0EC" stroke-width="6" stroke-linecap="round"/>
+                <path d="M360 126H450M360 148H430M360 170H442" stroke="#D8E0EC" stroke-width="6" stroke-linecap="round"/>
+                <rect x="58" y="206" width="96" height="28" rx="14" fill="#D2E3FC"/>
+                <rect x="210" y="206" width="96" height="28" rx="14" fill="#E6F4EA"/>
+                <rect x="362" y="206" width="116" height="28" rx="14" fill="#FCE8E6"/>
+                <circle class="pulse" cx="88" cy="60" r="8" fill="#1A73E8" opacity=".18"/>
+                <circle class="pulse delay-1" cx="126" cy="60" r="8" fill="#34A853" opacity=".18"/>
+                <circle class="pulse delay-2" cx="164" cy="60" r="8" fill="#F9AB00" opacity=".18"/>
+              </svg>
+            </div>
+          </div>
+        </article>
+
+        <article class="slide" data-slide="4">
+          <div class="slide-copy">
+            <div class="eyebrow">Page 5</div>
+            <h3>估值模型：用它检查价格隐含的预期</h3>
+            <p>进入估值页后，不要把系统数字当答案。你要看的是：当前股价需要什么样的增长、利润率和估值倍数才能成立。</p>
+            <div class="steps">
+              <div class="step"><div class="n">1</div><div><strong>先点重新计算或刷新</strong><span>如果数据过旧，先刷新公司数据；如果只是改参数，就重新计算。</span></div></div>
+              <div class="step"><div class="n">2</div><div><strong>再看目标区间和假设来源</strong><span>重点看系统用了历史数据、手动输入、同行，还是外部数据源。</span></div></div>
+              <div class="step"><div class="n">3</div><div><strong>最后看敏感项</strong><span>如果结果很离谱，先查增长、利润率、同行倍数和前瞻 EPS。</span></div></div>
+            </div>
+          </div>
+          <div class="slide-side">
+            <h4>你应该怎么读结果</h4>
+            <p>估值不是投资建议。它是一个假设检查器：帮你看当前价格是不是已经把很乐观的未来提前算进去了。</p>
+            <div class="visual-box">
+              <svg viewBox="0 0 520 320" aria-hidden="true">
+                <rect x="42" y="44" width="436" height="208" rx="22" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <path d="M84 214L180 170L256 182L336 122L424 94" fill="none" stroke="#1A73E8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M84 214L180 170L256 182L336 122L424 94" fill="none" stroke="#1A73E8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 16" class="flow-line"/>
+                <path d="M84 214H424" stroke="#E5EAF2" stroke-width="2"/>
+                <circle class="pulse" cx="84" cy="214" r="9" fill="#1A73E8" opacity=".18"/>
+                <circle class="pulse delay-1" cx="180" cy="170" r="9" fill="#34A853" opacity=".18"/>
+                <circle class="pulse delay-2" cx="336" cy="122" r="9" fill="#F9AB00" opacity=".18"/>
+                <circle cx="424" cy="94" r="11" fill="#EA4335" opacity=".18"/>
+                <rect x="76" y="268" width="108" height="20" rx="10" fill="#D2E3FC"/>
+                <rect x="190" y="268" width="108" height="20" rx="10" fill="#E6F4EA"/>
+                <rect x="304" y="268" width="130" height="20" rx="10" fill="#FCE8E6"/>
+              </svg>
+            </div>
+          </div>
+        </article>
+
+        <article class="slide" data-slide="5">
+          <div class="slide-copy">
+            <div class="eyebrow">Page 6</div>
+            <h3>同行比较：用来防止你被单家公司数字带偏</h3>
+            <p>看完估值后，再看同行。这里不是为了找一堆公司，而是确认：这家公司跟真正可比的公司相比，到底贵不贵、质量差在哪里。</p>
+            <div class="steps">
+              <div class="step"><div class="n">1</div><div><strong>先看核心同行</strong><span>只有核心同行会影响估值判断；外部候选只是参考，不能直接混进去。</span></div></div>
+              <div class="step"><div class="n">2</div><div><strong>再删掉不合适的公司</strong><span>行业不一样、商业模式不一样、周期属性不一样，就不要放进核心同行。</span></div></div>
+              <div class="step"><div class="n">3</div><div><strong>最后刷新比较数据</strong><span>用同行倍数、质量分、FCF yield 来校验估值结论是否合理。</span></div></div>
+            </div>
+          </div>
+          <div class="slide-side">
+            <h4>你要特别注意</h4>
+            <p>同行越多不代表越准确。宁愿只保留 3 到 6 个真正相近的公司，也不要让一长串错误同行污染判断。</p>
+            <div class="visual-box">
+              <svg viewBox="0 0 520 320" aria-hidden="true">
+                <circle cx="262" cy="158" r="36" fill="#E8F0FE" stroke="#D8E0EC"/>
+                <circle cx="146" cy="106" r="24" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <circle cx="376" cy="106" r="24" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <circle cx="170" cy="242" r="24" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <circle cx="354" cy="242" r="24" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <path d="M240 144L164 122" stroke="#AEB8C8" stroke-width="3" stroke-linecap="round"/>
+                <path d="M284 144L356 122" stroke="#AEB8C8" stroke-width="3" stroke-linecap="round"/>
+                <path d="M248 178L182 224" stroke="#AEB8C8" stroke-width="3" stroke-linecap="round"/>
+                <path d="M276 178L346 224" stroke="#AEB8C8" stroke-width="3" stroke-linecap="round"/>
+                <circle class="pulse" cx="262" cy="158" r="10" fill="#1A73E8" opacity=".18"/>
+                <circle class="pulse delay-1" cx="146" cy="106" r="8" fill="#34A853" opacity=".18"/>
+                <circle class="pulse delay-2" cx="376" cy="106" r="8" fill="#F9AB00" opacity=".18"/>
+                <text x="236" y="164" font-size="14" fill="#1F1F1F" font-weight="700">MU</text>
+                <text x="131" y="112" font-size="13" fill="#1F1F1F" font-weight="700">WDC</text>
+                <text x="362" y="112" font-size="13" fill="#1F1F1F" font-weight="700">STX</text>
+                <text x="158" y="248" font-size="13" fill="#1F1F1F" font-weight="700">AMD</text>
+                <text x="344" y="248" font-size="13" fill="#1F1F1F" font-weight="700">QCOM</text>
+              </svg>
+            </div>
+          </div>
+        </article>
+
+        <article class="slide" data-slide="6">
+          <div class="slide-copy">
+            <div class="eyebrow">Page 7</div>
+            <h3>投资备忘录：这是你真正形成结论的地方</h3>
+            <p>看完业务、估值和同行后，不要只停留在脑子里。把判断写进备忘录，后面复盘时才知道当时为什么这么想。</p>
+            <div class="steps">
+              <div class="step"><div class="n">1</div><div><strong>先写一句当前结论</strong><span>例如：偏贵但值得跟踪、合理但缺少安全边际、便宜但数据质量不足。</span></div></div>
+              <div class="step"><div class="n">2</div><div><strong>再写核心假设</strong><span>列出你相信它的原因，比如增长来源、利润率改善、行业周期、护城河。</span></div></div>
+              <div class="step"><div class="n">3</div><div><strong>最后写反证清单</strong><span>明确什么情况出现时，你要承认自己看错了。</span></div></div>
+            </div>
+          </div>
+          <div class="slide-side">
+            <h4>备忘录比自由笔记重要</h4>
+            <p>自由笔记可以补充细节，但结构化备忘录才是复盘入口。每次形成判断，都应该保存一个版本。</p>
+            <div class="visual-box">
+              <svg viewBox="0 0 520 320" aria-hidden="true">
+                <rect x="96" y="30" width="328" height="260" rx="24" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <path d="M130 78H312M130 108H370M130 138H344M130 168H290M130 198H360M130 228H324" stroke="#D8E0EC" stroke-width="6" stroke-linecap="round"/>
+                <rect x="130" y="48" width="116" height="20" rx="10" fill="#D2E3FC"/>
+                <rect x="130" y="248" width="186" height="22" rx="11" fill="#E6F4EA"/>
+                <circle class="pulse" cx="386" cy="74" r="11" fill="#1A73E8" opacity=".18"/>
+                <circle class="pulse delay-1" cx="388" cy="142" r="11" fill="#34A853" opacity=".18"/>
+                <circle class="pulse delay-2" cx="388" cy="210" r="11" fill="#F9AB00" opacity=".18"/>
+                <rect x="338" y="48" width="52" height="20" rx="10" fill="#FCE8E6"/>
+              </svg>
+            </div>
+          </div>
+        </article>
+
+        <article class="slide" data-slide="7">
+          <div class="slide-copy">
+            <div class="eyebrow">Page 8</div>
+            <h3>历史和设置：出问题时先来这里排查</h3>
+            <p>平时你不需要频繁打开设置页。但如果刷新失败、估值异常、数据来源缺失，先来这里检查 API key、默认参数和历史快照。</p>
+            <div class="steps">
+              <div class="step"><div class="n">1</div><div><strong>先看历史快照</strong><span>对比之前的合理中枢、当前价、判断变化，确认是不是数据变化导致。</span></div></div>
+              <div class="step"><div class="n">2</div><div><strong>再看数据源配置</strong><span>FMP、Alpha Vantage、Finnhub、FRED、LLM 配置都在设置里。</span></div></div>
+              <div class="step"><div class="n">3</div><div><strong>最后再回到公司档案</strong><span>配置修好后，重新刷新公司数据，再回估值页看结果。</span></div></div>
+            </div>
+          </div>
+          <div class="slide-side">
+            <h4>你的日常使用顺序</h4>
+            <p>平时：研究队列 → 公司档案 → 估值/同行 → 备忘录。遇到异常：历史和设置 → 刷新数据 → 再看估值。</p>
+            <div class="visual-box">
+              <svg viewBox="0 0 520 320" aria-hidden="true">
+                <rect x="84" y="40" width="352" height="56" rx="18" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="84" y="114" width="352" height="56" rx="18" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <rect x="84" y="188" width="352" height="56" rx="18" fill="#FFFFFF" stroke="#D8E0EC"/>
+                <circle class="pulse" cx="122" cy="68" r="9" fill="#1A73E8" opacity=".18"/>
+                <circle class="pulse delay-1" cx="122" cy="142" r="9" fill="#34A853" opacity=".18"/>
+                <circle class="pulse delay-2" cx="122" cy="216" r="9" fill="#F9AB00" opacity=".18"/>
+                <path d="M166 68H386M166 142H354M166 216H372" stroke="#D8E0EC" stroke-width="6" stroke-linecap="round"/>
+                <rect x="438" y="58" width="34" height="20" rx="10" fill="#D2E3FC"/>
+                <rect x="438" y="132" width="34" height="20" rx="10" fill="#E6F4EA"/>
+                <rect x="438" y="206" width="34" height="20" rx="10" fill="#FCE8E6"/>
+              </svg>
+            </div>
+          </div>
+        </article>
+      </section>
+    </div>
+  </main>
+
+  <div class="progress-shell" aria-label="页面进度导航">
+    <div class="progress-card">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+  </div>
+
+  <script>
+    const slides = [...document.querySelectorAll(".slide")];
+    const progressBar = document.getElementById("progressBar");
+    const stage = document.querySelector(".stage");
+    let current = 0;
+    const canvasWidth = 1280;
+    const canvasHeight = 720;
+
+    const labels = [
+      "开始",
+      "发现",
+      "队列",
+      "档案",
+      "估值",
+      "同行",
+      "备忘录",
+      "历史"
+    ];
+
+    slides.forEach((slide) => {
+      const inner = document.createElement("div");
+      inner.className = "slide-inner";
+      while (slide.firstChild) {
+        inner.appendChild(slide.firstChild);
+      }
+      slide.appendChild(inner);
+    });
+
+    function fitSlides() {
+      const active = slides[current]?.querySelector(".slide-inner");
+      if (!active || !stage) return;
+      const bounds = stage.getBoundingClientRect();
+      const scale = Math.min(bounds.width / canvasWidth, bounds.height / canvasHeight, 1);
+      active.style.transform = `scale(${scale})`;
+    }
+
+    function renderProgress() {
+      progressBar.innerHTML = "";
+      labels.forEach((label, index) => {
+        const button = document.createElement("button");
+        button.className = "progress-btn" + (index === current ? " active" : "");
+        button.type = "button";
+        button.setAttribute("data-label", label);
+        button.setAttribute("aria-label", `切换到第 ${index + 1} 页：${label}`);
+        button.setAttribute("aria-current", index === current ? "page" : "false");
+        button.addEventListener("click", () => go(index));
+        progressBar.appendChild(button);
+      });
+    }
+
+    function go(index) {
+      current = Math.max(0, Math.min(slides.length - 1, index));
+      slides.forEach((slide, i) => slide.classList.toggle("active", i === current));
+      renderProgress();
+      fitSlides();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowLeft") go(current - 1);
+      if (event.key === "ArrowRight") go(current + 1);
+    });
+
+    window.addEventListener("resize", fitSlides);
+
+    renderProgress();
+    fitSlides();
+  </script>
+</body>
+</html>
